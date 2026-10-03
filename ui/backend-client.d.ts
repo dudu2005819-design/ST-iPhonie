@@ -130,8 +130,8 @@ export interface ImageConnectionInfo extends ImageConnection { current: boolean;
 /** url: '' for OpenAI, else a relay ending at /v1. ask: confirm every (paid) picture; off also lets new replies draw. style: its own 画风 ('' = NovelAI's). */
 export interface GptImageSettings { url: string; model: string; quality: 'auto' | 'low' | 'medium' | 'high'; orientation: 'portrait' | 'landscape' | 'square'; ask: boolean; style: string; }
 /** Reached through the tavern's ComfyUI proxy. workflow: API-format JSON with "%prompt%" and the other placeholders ('' = the default one). */
-export interface ComfyWorkflow { id: string; name: string; workflow: string; model: string; vae: string; sampler: string; scheduler: string; steps: number; scale: number; width: number; height: number; clipSkip: number; }
-export interface ComfySettings extends Omit<ComfyWorkflow, 'id' | 'name'> { url: string; style: string; activeWorkflow: string; workflows: ComfyWorkflow[]; }
+export interface ComfyWorkflow { id: string; name: string; workflow: string; sourceWorkflow?: string; disabledLoras: string[]; model: string; vae: string; sampler: string; scheduler: string; steps: number; scale: number; width: number; height: number; clipSkip: number; }
+export interface ComfySettings extends Omit<ComfyWorkflow, 'id' | 'name'> { url: string; loraTransport: 'tavern' | 'direct'; style: string; activeWorkflow: string; workflows: ComfyWorkflow[]; }
 export interface VibeGroup { id: string; name: string; items: Array<{ vibe: string; strength: number }>; }
 export interface VibeSettings { enabled: boolean; use: { kind: '' | 'group' | 'vibe'; id: string }; groups: VibeGroup[]; }
 /** One saved vibe as the phone sees it: never the image or the encodings. keys: models it is encoded for (v4-5full …). */
@@ -461,9 +461,10 @@ export interface BackendFacade {
     /** Workflows saved in the tavern's own image generation (file names), and one of them as text. */
     comfyWorkflows(): Promise<string[]>;
     comfyWorkflow(name: string): Promise<string>;
-    saveComfyWorkflow(patch: {id?: string; name?: string; workflow?: string}): ComfyWorkflow;
+    saveComfyWorkflow(patch: {id?: string; name?: string; workflow?: string; sourceWorkflow?: string; disabledLoras?: string[]; params?: Partial<ComfyWorkflow>; expected?: Partial<ComfyWorkflow>}): ComfyWorkflow;
     selectComfyWorkflow(id: string): void;
     deleteComfyWorkflow(id: string): void;
+    comfyLoras(options?: {transport?: 'tavern' | 'direct'; signal?: AbortSignal}): Promise<string[]>;
     saveStyle(style: Omit<DrawStyle, 'id'> & { id?: string }): DrawStyle;
     deleteStyle(id: string): DrawSettings;
     saveDrawPreset(preset: Omit<DrawPreset, 'id'> & { id?: string }): DrawPreset;

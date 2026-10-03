@@ -2,12 +2,16 @@ import {createView, esc, engines, btn, field, input, select, textArea, toggle, h
 
 const TIERS = {0: '未订阅', 1: 'Tablet', 2: 'Scroll', 3: 'Opus'};
 import {icon, spark} from './icons.js';
+import {editComfyLoras} from './comfy-loras.js';
 
 export function enginesApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'engines'), drafts = new Map();
   let engine = null, dirty = false, subscription = null, subscriptionError = '', subscriptionStatus = 0, textDraft = null, models = [], subscriptionLoad = 0;
   // ComfyUI: what the last connection check found ({models, samplers, schedulers} or {error}), and the tavern's workflows.
   let comfyInfo = null;
+  let loraEditor = null;
+  const dispose = v.dispose;
+  v.dispose = () => { loraEditor?.close(); dispose(); };
   // The wallet is a stack: the last card is the one in front. A tap on another card draws it to the front; a tap on
   // the front card opens it.
   let order = ['llm', ...Object.keys(engines), 'comfy', 'gpt', 'nai'];
@@ -197,7 +201,8 @@ export function enginesApp(ctx) {
       + `<div class="group pad">
           ${field('当前工作流', select('comfy-preset', c.activeWorkflow, c.workflows.map(p => [p.id, p.name])))}
           ${current.id !== 'default' ? field('工作流名称', input('comfy-name', current.name, 'text', 'maxlength="60"')) + `<div class="key-actions">${btn('comfy-rename-wf', '保存名称', 'secondary')}${btn('comfy-delete-wf', '删除这套', 'danger')}</div>` : ''}
-          <p class="hint" style="padding:0">已保存 ${c.workflows.length} 套（含默认）。${current.id === 'default' ? '默认流程不带 LoRA。' : '这套工作流的 LoRA 和力度按导入文件执行。'}模型、步数和尺寸等设置也会跟着这套保存。</p>
+          <p class="hint" style="padding:0">已保存 ${c.workflows.length} 套（含默认）。模型、步数和尺寸等设置也会跟着这套保存。点下方编辑 LoRA，可调整后保存或另存为方案。</p>
+          <div class="actions">${btn('comfy-loras', '编辑 LoRA / 另存方案', 'primary')}</div>
           <div class="key-actions"><label class="file-pick"><input type="file" accept=".json,application/json" data-comfy-file aria-label="导入工作流 JSON 文件"><span>导入 JSON 文件</span></label>${btn('comfy-load-wf', '从酒馆导入', 'secondary')}</div>
         </div>
         <p class="hint">ComfyUI 没有 NovelAI 那种分角色的提示词：插件把场景和每个人的外貌合成一条提示词；NovelAI 的权重写法（{tag}、[tag]、1.2::tag::）会换成 (tag:1.1) 这种。采样器、步数、尺寸在绘图 App 的「参数」里改。</p>
@@ -536,6 +541,7 @@ export function enginesApp(ctx) {
       }
       case 'save-comfy-url': api.saveDraw({comfy: {url: v.root.querySelector('[data-field=comfy-url]').value}}); render(); ctx.notify('ComfyUI 地址已保存'); break;
       case 'comfy-test': await v.busy(el, loadComfy); break;
+      case 'comfy-loras': loraEditor = editComfyLoras(ctx, () => { if (!v.disposed && engine === 'comfy') render(); }); break;
       case 'comfy-rename-wf': api.saveComfyWorkflow({id: api.getState().draw.comfy.activeWorkflow, name: v.root.querySelector('[data-field=comfy-name]').value}); render(); ctx.notify('工作流名称已保存'); break;
       case 'comfy-delete-wf': {
         const c = api.getState().draw.comfy, current = c.workflows.find(p => p.id === c.activeWorkflow);

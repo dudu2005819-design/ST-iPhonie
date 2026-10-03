@@ -111,9 +111,9 @@ test('invalid and oversized imports, limits and host save failures do not erase 
   } finally { await f.backend.close(); }
 });
 
-test('generation and queued jobs keep their workflow; switches and parameter changes wait until completion', async () => {
+test('ComfyUI queued jobs keep their submitted snapshot while the next workflow is edited or deleted', async () => {
   const finish = [], started = [];
-  const start = [0, 1].map(i => new Promise(resolve => { started[i] = resolve; }));
+  const start = [0, 1, 2].map(i => new Promise(resolve => { started[i] = resolve; }));
   const f = await fixture({answer: () => new Promise(resolve => { const i = finish.length; finish.push(resolve); started[i](); })});
   try {
     f.api.saveDraw({engine: 'comfy', comfy: {model: 'base'}});
@@ -121,12 +121,18 @@ test('generation and queued jobs keep their workflow; switches and parameter cha
     const pending = f.api.generateImage({prompt: 'cat'}); await start[0];
     const queued = f.api.generateImage({prompt: 'dog'});
     assert.equal(f.api.drawQueue().filter(job => job.state === 'waiting').length, 1);
-    for (const change of [() => f.api.selectComfyWorkflow('default'), () => f.api.deleteComfyWorkflow(a.id), () => f.api.saveDraw({comfy: {steps: 44}}), () => f.api.saveComfyWorkflow({name: 'B', workflow: workflow('b')})]) assert.throws(change, /正在生成或排队/);
+    f.api.selectComfyWorkflow('default'); f.api.deleteComfyWorkflow(a.id);
+    f.api.saveDraw({comfy: {steps: 44, url: 'http://comfy-next.test:8188'}});
+    f.api.saveComfyWorkflow({name: 'B', workflow: workflow('b')});
+    const next = f.api.generateImage({prompt: 'bird'});
+    assert.throws(() => f.api.saveDraw({engine: 'gpt'}), /正在生成或排队/);
     finish[0](Response.json({format: 'png', data: PNG})); await pending;
-    assert.throws(() => f.api.selectComfyWorkflow('default'), /正在生成或排队/);
     await start[1]; finish[1](Response.json({format: 'png', data: PNG})); await queued;
+    await start[2]; finish[2](Response.json({format: 'png', data: PNG})); await next;
     f.api.selectComfyWorkflow('default');
-    assert.deepEqual(f.calls.map(call => JSON.parse(call.body.prompt).prompt['10'].inputs.lora_name), ['a.safetensors', 'a.safetensors']);
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.body.prompt).prompt['10'].inputs.lora_name), ['a.safetensors', 'a.safetensors', 'b.safetensors']);
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.body.prompt).prompt['3'].inputs.steps), [28, 28, 44]);
+    assert.deepEqual(f.calls.map(call => call.body.url), ['http://127.0.0.1:8188', 'http://127.0.0.1:8188', 'http://comfy-next.test:8188']);
   } finally { await f.backend.close(); }
 });
 

@@ -125,6 +125,7 @@ export async function gptGenerate({fetch = globalThis.fetch, settings, key, prom
 }
 
 // ---------- ComfyUI ----------
+import {normalizeDisabledLoras} from './comfy-loras.js';
 /** The tavern's default workflow (SD 1.5 / SDXL checkpoint, one KSampler). */
 export const DEFAULT_COMFY_WORKFLOW = JSON.stringify({
   3: {class_type: 'KSampler', inputs: {cfg: '%scale%', denoise: 1, latent_image: ['5', 0], model: ['4', 0], negative: ['7', 0], positive: ['6', 0], sampler_name: '%sampler%', scheduler: '%scheduler%', seed: '%seed%', steps: '%steps%'}},
@@ -138,7 +139,7 @@ export const DEFAULT_COMFY_WORKFLOW = JSON.stringify({
 export const COMFY_LIMITS = {workflow: 300000, presets: 20};
 const COMFY_DEFAULT_PARAMS = {model: '', vae: '', sampler: 'euler_ancestral', scheduler: 'normal', steps: 28, scale: 6, width: 832, height: 1216, clipSkip: 2};
 export const COMFY_PARAM_KEYS = Object.keys(COMFY_DEFAULT_PARAMS);
-export const defaultComfy = () => ({url: 'http://127.0.0.1:8188', workflow: '', ...COMFY_DEFAULT_PARAMS, style: '', activeWorkflow: 'default', workflows: [{id: 'default', name: '默认工作流', workflow: '', ...COMFY_DEFAULT_PARAMS}]});
+export const defaultComfy = () => ({url: 'http://127.0.0.1:8188', loraTransport: 'tavern', workflow: '', disabledLoras: [], ...COMFY_DEFAULT_PARAMS, style: '', activeWorkflow: 'default', workflows: [{id: 'default', name: '默认工作流', workflow: '', disabledLoras: [], ...COMFY_DEFAULT_PARAMS}]});
 
 export function comfyUrl(value) {
   const raw = String(value ?? '').trim();
@@ -176,6 +177,7 @@ export function applyComfyWorkflow(c, id = c.activeWorkflow) {
   const p = c.workflows.find(p => p.id === id);
   if (!p) throw Error('这套工作流已经不在了');
   c.activeWorkflow = id; c.workflow = p.workflow;
+  c.disabledLoras = [...(p.disabledLoras || [])];
   for (const key of COMFY_PARAM_KEYS) c[key] = p[key];
   return c;
 }
@@ -196,7 +198,9 @@ export function normalizeComfy(value) {
     const workflow = checkWorkflow(row.workflow);
     if (id === 'default' && workflow) throw Error('默认工作流不能被覆盖，请另存为一套');
     if (id !== 'default' && !workflow) throw Error('导入的工作流不能为空');
-    return {id, name: id === 'default' ? '默认工作流' : String(row.name || '未命名工作流').trim().slice(0, 60) || '未命名工作流', workflow, ...comfyParams(row)};
+    const disabledLoras = normalizeDisabledLoras(workflow, row.disabledLoras);
+    const sourceWorkflow = row.sourceWorkflow ? checkWorkflow(row.sourceWorkflow) : '';
+    return {id, name: id === 'default' ? '默认工作流' : String(row.name || '未命名工作流').trim().slice(0, 60) || '未命名工作流', workflow, disabledLoras, ...(sourceWorkflow ? {sourceWorkflow} : {}), ...comfyParams(row)};
   });
   if (!ids.has('default')) {
     if (workflows.length >= COMFY_LIMITS.presets) throw Error('请给默认工作流留出一个位置');
@@ -207,7 +211,7 @@ export function normalizeComfy(value) {
   // Existing parameter controls and older callers edit the selected preset through the flat fields.
   for (const key of COMFY_PARAM_KEYS) if (Object.hasOwn(c, key)) selected[key] = params[key];
   const out = {url: (() => { try { return comfyUrl(c.url ?? base.url); } catch { return base.url; } })(),
-    style: typeof c.style === 'string' ? c.style.slice(0, 64) : '', workflows, activeWorkflow: active};
+    loraTransport: c.loraTransport === 'direct' ? 'direct' : 'tavern', style: typeof c.style === 'string' ? c.style.slice(0, 64) : '', workflows, activeWorkflow: active};
   return applyComfyWorkflow(out);
 }
 /** ComfyUI size for a picture's orientation: the configured size, turned or squared to match. */
@@ -282,6 +286,29 @@ export async function comfyCatalog({fetch = globalThis.fetch, headers = {}, url}
   const [models, samplers, schedulers] = await Promise.all([read('models'), read('samplers'), read('schedulers')]);
   return {models: (Array.isArray(models) ? models : []).map(m => typeof m === 'string' ? {value: m, text: m} : {value: String(m.value), text: String(m.text || m.value)}),
     samplers: (Array.isArray(samplers) ? samplers : []).map(String), schedulers: (Array.isArray(schedulers) ? schedulers : []).map(String)};
+}
+/** Native node metadata; no third-party manager. Direct mode never sends tavern headers or cookies. */
+export async function comfyLoras({fetch = globalThis.fetch, url, transport = 'tavern', signal}) {
+  const endpoint = comfyUrl(url) + '/object_info/LoraLoader';
+  const direct = transport === 'direct';
+  if (!['tavern', 'direct'].includes(transport)) throw Error('LoRA 列表读取方式无效');
+  const timeout = AbortSignal.timeout(15000), combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  let response;
+  try { response = await fetch(direct ? endpoint : '/proxy/' + endpoint, {method: 'GET', credentials: direct ? 'omit' : 'same-origin', headers: {Accept: 'application/json'}, signal: combined}); }
+  catch (error) {
+    if (signal?.aborted) throw error;
+    throw Error(direct ? '浏览器读不到 ComfyUI 的 LoRA 列表：请检查地址和跨域设置。手机不能用电脑的 127.0.0.1，可改用酒馆代理；也可手填文件名。' : '酒馆代理读不到 LoRA 列表：请检查 ComfyUI 地址和连接；也可手填文件名。');
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    if (!direct && /CORS proxy is disabled/i.test(text)) throw Error('酒馆代理尚未开启：在酒馆 config.yaml 设置 enableCorsProxy: true 后重启，或选择浏览器直连。也可以先手填已安装的 LoRA 文件名。');
+    throw Error(`LoRA 列表读取失败（HTTP ${response.status}），请检查连接方式和 ComfyUI 地址；也可手填文件名。`);
+  }
+  let data; try { data = JSON.parse(text); } catch { throw Error('LoRA 接口返回的不是 JSON，请检查地址是否指向 ComfyUI'); }
+  const spec = data?.LoraLoader?.input?.required?.lora_name;
+  const names = Array.isArray(spec?.[0]) ? spec[0] : spec?.[1]?.options;
+  if (!Array.isArray(names) || names.some(n => typeof n !== 'string')) throw Error('ComfyUI 没有返回原生 LoraLoader 文件列表，请检查版本和节点是否正常');
+  return [...new Set(names.filter(n => n && n.length <= 1000))].sort((a, b) => a.localeCompare(b));
 }
 /** The workflows saved in the tavern (its image generation settings): names, and one's text. */
 export async function tavernWorkflows({fetch = globalThis.fetch, headers = {}}) {

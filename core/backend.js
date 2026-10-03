@@ -10,7 +10,8 @@ import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
-import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW, COMFY_PARAM_KEYS, applyComfyWorkflow } from './image-engines.js';
+import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, comfyLoras, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW, COMFY_PARAM_KEYS, applyComfyWorkflow } from './image-engines.js';
+import {activeLoraWorkflow, normalizeDisabledLoras} from './comfy-loras.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
@@ -224,9 +225,7 @@ export class TTSBackend {
             validateSettings(copy);
         } catch (error) { throw Error(message(error)); }
         const imageChanged = JSON.stringify([copy.draw.connections, copy.draw.engine]) !== JSON.stringify([this.settings.draw.connections, this.settings.draw.engine]);
-        const comfyRequest = c => [c.url, c.activeWorkflow, c.workflow, ...COMFY_PARAM_KEYS.map(key => c[key])];
-        const comfyChanged = JSON.stringify(comfyRequest(copy.draw.comfy)) !== JSON.stringify(comfyRequest(this.settings.draw.comfy));
-        if (imageChanged || comfyChanged) this.assertImageIdle();
+        if (imageChanged) this.assertImageIdle();
         // The host callback completes before the service acknowledges a new settings revision.
         this.persist(clone(copy));
         this.settings = copy;
@@ -619,7 +618,7 @@ export class TTSBackend {
     textModels(draft) { const text = activeText(this.textWith(draft)); return listModels({ text, key: this.textKeys.get(text.id) || '' }); }
 
     // ---------- Drawing ----------
-    assertImageIdle() { this.assertOpen(); if (this.drawQueue.pending) throw Error('还有图片正在生成或排队，请等完成或取消队列后再改生图连接或工作流'); }
+    assertImageIdle() { this.assertOpen(); if (this.drawQueue.pending) throw Error('还有图片正在生成或排队，请等完成或取消队列后再换生图引擎或账号连接'); }
     activateImageKeys() {
         this.novelai.setKey(this.imageKeys.nai.get(this.settings.draw.connections.nai.active) || '');
         this.novelai.relay = this.settings.draw.relay.url;
@@ -695,15 +694,20 @@ export class TTSBackend {
         const next = this.getState(), c = next.draw.comfy, old = c.workflows.find(p => p.id === patch.id);
         if (patch.id === 'default') throw Error('默认工作流不能修改，请导入为新的一套');
         if (patch.id && !old) throw Error('这套工作流已经不在了');
+        if (old && patch.expected && Object.entries(patch.expected).some(([key, value]) => JSON.stringify(old[key]) !== JSON.stringify(value))) throw Error('这套工作流在其他地方改过了，请重新打开 LoRA 编辑器');
         let name = String(patch.name ?? old?.name ?? '').trim();
         if (!name || name.length > 60) throw Error('请填写工作流名称（最多 60 字）');
         const workflow = checkWorkflow(patch.workflow ?? old?.workflow);
         if (!workflow) throw Error('导入的工作流不能为空');
         if (!old) { const stem = name; let n = 2; while (c.workflows.some(p => p.name === name)) name = stem.slice(0, 54) + ` (${n++})`; }
-        const row = {id: old?.id || crypto.randomUUID(), name, workflow, ...Object.fromEntries(COMFY_PARAM_KEYS.map(key => [key, (old || c)[key]]))};
+        const disabledLoras = normalizeDisabledLoras(workflow, patch.disabledLoras ?? old?.disabledLoras);
+        // Validate bypass wiring before acknowledging a saved scheme.
+        activeLoraWorkflow(workflow, disabledLoras);
+        const sourceWorkflow = checkWorkflow(patch.sourceWorkflow ?? old?.sourceWorkflow);
+        const row = {id: old?.id || crypto.randomUUID(), name, workflow, disabledLoras, ...(sourceWorkflow ? {sourceWorkflow} : {}), ...Object.fromEntries(COMFY_PARAM_KEYS.map(key => [key, patch.params?.[key] ?? (old || c)[key]]))};
         if (old) c.workflows[c.workflows.indexOf(old)] = row; else c.workflows.push(row);
         applyComfyWorkflow(c, row.id); this.save(next);
-        return clone(row);
+        return clone(this.settings.draw.comfy.workflows.find(p => p.id === row.id));
     }
     selectComfyWorkflow(id) {
         const next = this.getState(); applyComfyWorkflow(next.draw.comfy, id); this.save(next);
@@ -746,7 +750,7 @@ export class TTSBackend {
                 else if (current.activeWorkflow === 'default') {
                     const row = {id: crypto.randomUUID(), name: '自定义工作流', workflow: c.workflow, ...Object.fromEntries(COMFY_PARAM_KEYS.map(key => [key, current[key]]))};
                     current.workflows.push(row); applyComfyWorkflow(current, row.id);
-                } else current.workflows.find(p => p.id === current.activeWorkflow).workflow = c.workflow;
+                } else { const row = current.workflows.find(p => p.id === current.activeWorkflow); row.workflow = c.workflow; row.disabledLoras = []; delete row.sourceWorkflow; }
             }
             draw.comfy = normalizeComfy({ ...current, ...c });
         }
@@ -996,19 +1000,20 @@ export class TTSBackend {
     drawMissing() { const engine = this.settings.draw.engine; return this.drawReady() ? '' : engine === 'gpt' ? '还没有填写 GPT 生图的密钥' : engine === 'comfy' ? '还没有填写 ComfyUI 地址' : '还没有填写 NovelAI 密钥'; }
     /** ComfyUI: connection check and what it offers (models, samplers, schedulers). url: an address not saved yet. */
     async comfyCatalog(url) { this.assertOpen(); return comfyCatalog({ fetch: this.imageFetch, headers: this.tavernHeaders(), url: comfyUrl(url ?? this.settings.draw.comfy.url) }); }
+    async comfyLoras({transport, signal} = {}) { this.assertOpen(); const c = this.settings.draw.comfy; return comfyLoras({fetch: this.imageFetch, url: c.url, transport: transport ?? c.loraTransport, signal}); }
     async comfyWorkflows() { this.assertOpen(); return tavernWorkflows({ fetch: this.imageFetch, headers: this.tavernHeaders() }); }
     async comfyWorkflow(name) { this.assertOpen(); return tavernWorkflow({ fetch: this.imageFetch, headers: this.tavernHeaders(), name: String(name || '') }); }
     /** Draws with GPT or ComfyUI. Inputs are the NovelAI-shaped picture (scene prompt, one caption per person). */
-    async drawWithEngine(engine, { prompt, negative, characters, quote, signal }) {
+    async drawWithEngine(engine, { prompt, negative, characters, quote, signal, comfy }) {
         const draw = this.settings.draw, p = quote.params;
         if (engine === 'gpt') {
             const text = gptPrompt({ prompt, characters });
             const blob = await gptGenerate({ fetch: this.imageFetch, settings: draw.gpt, key: this.gptKey, prompt: text, size: `${p.width}x${p.height}`, signal });
             return { blob, seed: -1, params: { model: draw.gpt.model, width: p.width, height: p.height }, prompt: text };
         }
-        const c = draw.comfy, seed = p.seed >= 0 ? p.seed : Math.floor(Math.random() * 4294967295);
+        const c = comfy || draw.comfy, seed = p.seed >= 0 ? p.seed : Math.floor(Math.random() * 4294967295);
         const text = comfyPrompt({ prompt, negative, characters });
-        const workflow = fillWorkflow(c.workflow, comfyValues(c, { prompt: text.prompt, negative: text.negative, width: p.width, height: p.height, seed }));
+        const workflow = fillWorkflow(activeLoraWorkflow(c.workflow || DEFAULT_COMFY_WORKFLOW, c.disabledLoras), comfyValues(c, { prompt: text.prompt, negative: text.negative, width: p.width, height: p.height, seed }));
         const blob = await comfyGenerate({ fetch: this.imageFetch, headers: this.tavernHeaders(), url: c.url, workflow, signal });
         return { blob, seed, params: { model: c.model || '工作流', width: p.width, height: p.height, steps: c.steps, scale: c.scale, sampler: c.sampler }, prompt: text.prompt };
     }
@@ -1022,10 +1027,12 @@ export class TTSBackend {
         const quote = this.drawQuote(params);
         if (engine !== 'nai') {
             if (quote.free === false && !allowPaid) return Promise.reject(Object.assign(Error('GPT 生图每张都要花钱，需要确认后再生成'), { code: 'PAID' }));
+            const comfy = engine === 'comfy' ? clone(Object.fromEntries(['url', 'workflow', 'disabledLoras', ...COMFY_PARAM_KEYS].map(k => [k, this.settings.draw.comfy[k]]))) : undefined;
+            const picture = {prompt, negative, characters: clone(characters), quote, comfy};
             const job = this.drawQueue.add({ key, label: label || String(prompt).slice(0, 40), task: async signal => {
                 this.assertOpen();
                 this.emit('draw', { phase: 'generating' });
-                const made = await this.drawWithEngine(engine, { prompt, negative, characters, quote, signal });
+                const made = await this.drawWithEngine(engine, { ...picture, signal });
                 this.assertOpen();
                 const ext = made.blob.type === 'image/jpeg' ? 'jpg' : made.blob.type === 'image/webp' ? 'webp' : 'png';
                 const photo = await this.library.addPhoto({ name: (name || DRAW_ENGINE_NAMES[engine]) + '-' + (made.seed >= 0 ? made.seed : Date.now()) + '.' + ext, blob: made.blob });
@@ -1403,6 +1410,7 @@ export class TTSBackend {
             imageConnectionList: engine => this.imageConnectionList(engine), saveImageConnection: (engine, patch) => this.saveImageConnection(engine, patch), selectImageConnection: (engine, id) => this.selectImageConnection(engine, id), deleteImageConnection: (engine, id) => this.deleteImageConnection(engine, id),
             drawReady: () => this.drawReady(), drawMissing: () => this.drawMissing(), paidPrompt: () => this.paidPrompt(), comfyCatalog: url => this.comfyCatalog(url), comfyWorkflows: () => this.comfyWorkflows(), comfyWorkflow: name => this.comfyWorkflow(name),
             saveComfyWorkflow: patch => this.saveComfyWorkflow(patch), selectComfyWorkflow: id => this.selectComfyWorkflow(id), deleteComfyWorkflow: id => this.deleteComfyWorkflow(id),
+            comfyLoras: options => this.comfyLoras(options),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },
             listVibes: () => this.listVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),

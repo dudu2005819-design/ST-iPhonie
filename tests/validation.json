@@ -1,25 +1,25 @@
 {
-  "checkedAt": "2026-10-03T12:21:40.815Z",
+  "checkedAt": "2026-10-03T12:59:43.125Z",
   "node": "v24.14.0",
   "fullSuite": {
-    "command": "node --test --test-concurrency=1 --test-reporter=tap tests/core.test.mjs tests/role-persistence.test.mjs tests/dialogue-presentation.test.mjs tests/library.test.mjs tests/player-backend.test.mjs tests/provider-contract.test.mjs tests/backend.test.mjs tests/draw.test.mjs tests/queue.test.mjs tests/plan.test.mjs tests/chat.test.mjs tests/phone-ui.test.mjs tests/download.test.mjs tests/diagnostics.test.mjs tests/moments.test.mjs tests/call.test.mjs tests/llm.test.mjs tests/sync.test.mjs tests/compat.test.mjs tests/mimo.test.mjs tests/vibes.test.mjs tests/keystore.test.mjs tests/lore.test.mjs tests/stream.test.mjs tests/lan.test.mjs tests/apps.test.mjs tests/idb.test.mjs tests/image-engines.test.mjs tests/image-connections.test.mjs tests/comfy-workflows.test.mjs tests/wallet.test.mjs",
-    "count": 292,
-    "passed": 292,
+    "command": "node --test --test-concurrency=1 --test-reporter=tap tests/core.test.mjs tests/role-persistence.test.mjs tests/dialogue-presentation.test.mjs tests/library.test.mjs tests/player-backend.test.mjs tests/provider-contract.test.mjs tests/backend.test.mjs tests/draw.test.mjs tests/queue.test.mjs tests/plan.test.mjs tests/chat.test.mjs tests/phone-ui.test.mjs tests/download.test.mjs tests/diagnostics.test.mjs tests/moments.test.mjs tests/call.test.mjs tests/llm.test.mjs tests/sync.test.mjs tests/compat.test.mjs tests/mimo.test.mjs tests/vibes.test.mjs tests/keystore.test.mjs tests/lore.test.mjs tests/stream.test.mjs tests/lan.test.mjs tests/apps.test.mjs tests/idb.test.mjs tests/image-engines.test.mjs tests/image-connections.test.mjs tests/comfy-workflows.test.mjs tests/comfy-loras.test.mjs tests/wallet.test.mjs",
+    "count": 299,
+    "passed": 299,
     "failed": 0,
     "skipped": 0,
     "exitCode": 0,
     "log": "tests/phone-release.tap"
   },
   "syntax": {
-    "javascriptFiles": 66,
+    "javascriptFiles": 68,
     "relativeImports": "resolved",
     "declarations": "syntax and public member coverage; no full TypeScript semantic compilation",
-    "facadeMembers": 178
+    "facadeMembers": 179
   },
   "branchSuite": {
     "command": "npm test --prefix tests",
-    "count": 15,
-    "passed": 15,
+    "count": 22,
+    "passed": 22,
     "failed": 0
   },
   "manifest": {
@@ -38,7 +38,7 @@
   "sourceFiles": [
     {
       "path": "core/backend.js",
-      "sha256": "5098c49f32f29fef6dec8b802fb12b786aa0bce190bb20b44b1842e4942fb470"
+      "sha256": "11e9afa7509129a5e6a82fe5e96ca7b642cb7ac3f4de614a96105480c5c79bf3"
     },
     {
       "path": "core/draw-queue.js",
@@ -50,7 +50,11 @@
     },
     {
       "path": "core/image-engines.js",
-      "sha256": "1fa7607ea7b763888bee552d7503590b8f4f70b57f12da509fccd60a18018524"
+      "sha256": "eff44166e2ef9d2d1564e67f10c619f97a7c1e2a94ef6b2acc696e5fdf7c59de"
+    },
+    {
+      "path": "core/comfy-loras.js",
+      "sha256": "3c03f34b846582c43bb275ba839acd75445fa77221fc473599f9ec9254fb3905"
     },
     {
       "path": "core/keys.js",
@@ -58,11 +62,15 @@
     },
     {
       "path": "ui/backend-client.d.ts",
-      "sha256": "67051726c5cf4ced6906a711334171628faaf9985081d39c93154050477394fa"
+      "sha256": "274cfb44175ff30e24de3ec9b9385e3cd8d422413d5f12117b31aa1b6db02306"
     },
     {
       "path": "ui/engines.js",
-      "sha256": "9c1271ffbc72ae1414236919e1845cd59d18abaa58081884f926f95708119557"
+      "sha256": "c155536e02bca386e2edd71b7691b5dd360b016984ef36572ad457d2407cc6e2"
+    },
+    {
+      "path": "ui/comfy-loras.js",
+      "sha256": "890c71db0ae34550f2b66ff961cfab975d68dc8c679cd1aeae9e4f329d13b9fc"
     },
     {
       "path": "tests/image-connections.test.mjs",
@@ -70,7 +78,28 @@
     },
     {
       "path": "tests/comfy-workflows.test.mjs",
-      "sha256": "a3c814a138190ab413298f7c24569e3807f5d777fd234df3a470d20884135336"
+      "sha256": "ecf239e8addb9836c0b01673ece6826d8e48269b5264f399ab330244275c6701"
+    },
+    {
+      "path": "tests/comfy-loras.test.mjs",
+      "sha256": "cc4026b4bc58018b1b012032b285c2ee3ce94f791dbdd363509cecb477db6571"
     }
-  ]
+  ],
+  "loraCapability": {
+    "version": "1.19.0",
+    "check": "Local SillyTavern source inspection only; not a live runtime call",
+    "optionalRoute": "GET /proxy/:url(*) with enableCorsProxy",
+    "files": [
+      {
+        "path": "src/server-main.js",
+        "sha256": "70816e313749d66ba023e3b0491a6475e4028bba6149c027f5d2ea96726e3b97"
+      },
+      {
+        "path": "src/middleware/corsProxy.js",
+        "sha256": "b162c26ead8db16732e588f44f1c43a9eeab48278cbe908bdf08f759e8b63807"
+      }
+    ],
+    "comfyRuntime": "Version unknown; native LoraLoader metadata is checked when the user reads the list; no third-party manager",
+    "liveCatalogue": false
+  }
 }
