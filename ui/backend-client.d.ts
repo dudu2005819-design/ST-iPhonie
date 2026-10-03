@@ -98,6 +98,7 @@ export interface DrawStyle { id: string; name: string; artist: string; positive:
 /** 绘图预设: rules injected into the chat request so the model writes <img> tags. */
 export interface DrawPreset { id: string; name: string; /** Pictures per reply, 1 to drawCountMax. */ count: number; injection: Injection; entries: PresetEntry[]; }
 export interface DrawSettings {
+    connections: Record<'nai' | 'gpt', {active: string; presets: ImageConnection[]}>;
     /** Inject the drawing preset into chat requests. */
     enabled: boolean;
     /** Draw new replies' pictures automatically when free. */
@@ -123,6 +124,9 @@ export interface DrawSettings {
     gpt: GptImageSettings;
     comfy: ComfySettings;
 }
+/** Saved drawing endpoint; its secret is kept in the key store, outside settings. */
+export interface ImageConnection { id: string; name: string; url: string; model?: string; assumeOpus?: boolean; }
+export interface ImageConnectionInfo extends ImageConnection { current: boolean; configured: boolean; tail: string; }
 /** url: '' for OpenAI, else a relay ending at /v1. ask: confirm every (paid) picture; off also lets new replies draw. style: its own 画风 ('' = NovelAI's). */
 export interface GptImageSettings { url: string; model: string; quality: 'auto' | 'low' | 'medium' | 'high'; orientation: 'portrait' | 'landscape' | 'square'; ask: boolean; style: string; }
 /** Reached through the tavern's ComfyUI proxy. workflow: API-format JSON with "%prompt%" and the other placeholders ('' = the default one). */
@@ -442,6 +446,10 @@ export interface BackendFacade {
     setKey(engine: KeyEngine, key: string): void;
     clearKey(engine: KeyEngine): void;
     saveDraw(patch: DrawSettingsPatch): DrawSettings;
+    imageConnectionList(engine: 'nai' | 'gpt'): ImageConnectionInfo[];
+    saveImageConnection(engine: 'nai' | 'gpt', patch?: Partial<ImageConnection> & {key?: string}): ImageConnectionInfo;
+    selectImageConnection(engine: 'nai' | 'gpt', id: string): void;
+    deleteImageConnection(engine: 'nai' | 'gpt', id: string): void;
     /** Whether the engine in use can draw (NovelAI / GPT key saved, ComfyUI address set); drawMissing says what is missing ('' when ready). */
     drawReady(): boolean;
     drawMissing(): string;

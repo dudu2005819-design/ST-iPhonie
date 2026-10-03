@@ -21,7 +21,7 @@ import { AudioCache } from './cache.js';
 import { DialoguePlayer } from './player.js';
 import { LocalLibrary, PHONE_APPS, PHONE_WALLPAPERS, PHONE_GLYPHS, PHONE_SKINS } from './library.js';
 import { NovelAIClient, relayUrl, FISH_PATHS, NAI_MODELS, NAI_MODEL_NAMES, NAI_SAMPLERS, NAI_SCHEDULES, buildImageRequest, guardParams, isFree, isV5, normalizeDrawParams } from './novelai.js';
-import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, PRESET_REV as DRAW_PRESET_REV, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw, normalizeVibeSettings } from './draw.js';
+import { PIC_TAG_FORMAT, DEFAULT_DRAW_RULE, DRAW_COUNT_MAX, PRESET_REV as DRAW_PRESET_REV, drawPromptPlan, planRequest, validateDrawPreset, normalizeDraw, defaultDraw, normalizeVibeSettings, applyImageConnection } from './draw.js';
 import { defaultChat, normalizeChatPreset, normalizeContact, validateChatPreset, validateContact, chatContacts, inSpace, activeSpace, buildChatRequest, activeChatPreset, normalizeVoiceText, normalizeProfile , normalizeAvatars } from './chat.js';
 import { ChatStore, money } from './chats.js';
 import { DrawQueue } from './draw-queue.js';
@@ -71,6 +71,8 @@ export class TTSBackend {
         this.keyStore = keyStore || new KeyStore(this.settings.scope, { indexedDB, onError: message => this.notify(message) });
         this.novelai = novelai || new NovelAIClient();
         this.textKeys = new Map();
+        this.imageKeys = {nai: new Map(), gpt: new Map()};
+        this.imageConnectionRevision = 0;
         // Saved vibes by id: their summaries (core/vibes.js vibeSummary); the files themselves stay in the library.
         this.vibes = new Map();
         this.chats = chats || new ChatStore(this.settings.scope, { indexedDB });
@@ -104,7 +106,7 @@ export class TTSBackend {
     }
     async initialize() {
         this.assertOpen();
-        try { await this.keyStore.open?.(); for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai') this.novelai.setKey(key); else if (engine === 'gpt') this.gptKey = key; else if (engine === 'llm') this.textKeys = parseTextKeys(key); else this.providers.setKey(engine, key); } }
+        try { await this.keyStore.open?.(); for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai' || engine === 'gpt') this.imageKeys[engine] = parseTextKeys(key); else if (engine === 'llm') this.textKeys = parseTextKeys(key); else this.providers.setKey(engine, key); } this.activateImageKeys(); }
         catch (error) { this.notify(error.message); }
         try {
             const phone = await this.library.getPhone();
@@ -221,9 +223,12 @@ export class TTSBackend {
             for (const [engine, connection] of Object.entries(copy.connections)) modelCheck(engine, connection.model);
             validateSettings(copy);
         } catch (error) { throw Error(message(error)); }
+        const imageChanged = JSON.stringify([copy.draw.connections, copy.draw.engine]) !== JSON.stringify([this.settings.draw.connections, this.settings.draw.engine]);
+        if (imageChanged) this.assertImageIdle();
         // The host callback completes before the service acknowledges a new settings revision.
         this.persist(clone(copy));
         this.settings = copy;
+        if (imageChanged) this.activateImageKeys();
         this.revision++;
         this.emit('settings', { state: this.getState() });
         return this.getState();
@@ -305,8 +310,13 @@ export class TTSBackend {
         keyCheck(engine); if (!String(key).trim()) throw Error('请填写密钥，或使用清除密钥');
         // The text model: a stored list (from a backup) replaces every preset's key; a plain key is the active preset's.
         if (engine === 'llm') { if (String(key).includes('\t')) this.storeTextKeys(parseTextKeys(key)); else this.setTextKey(this.settings.text.active, key); return; }
+        if (engine === 'nai' || engine === 'gpt') {
+            this.assertImageIdle();
+            const map = String(key).includes('\t') ? parseTextKeys(key) : new Map(this.imageKeys[engine]).set(this.settings.draw.connections[engine].active, validateKey(engine, key));
+            this.storeImageKeys(engine, map); return;
+        }
         const saved = this.keyStore.save(engine, key);
-        if (engine === 'nai') { this.novelai.setKey(saved); this.subscription = null; } else if (engine === 'gpt') this.gptKey = saved; else { this.providers.setKey(engine, saved); this.balances.delete(engine); }
+        this.providers.setKey(engine, saved); this.balances.delete(engine);
         this.emit('keys', { engine, configured: true });
     }
     /** Voice engines keep several keys: new ones are added after those saved (repeats once). Returns how many were new. */
@@ -356,8 +366,9 @@ export class TTSBackend {
     clearKey(engine) {
         keyCheck(engine);
         if (engine === 'llm') { this.clearTextKey(this.settings.text.active); return; }
+        if (engine === 'nai' || engine === 'gpt') { this.assertImageIdle(); const map = new Map(this.imageKeys[engine]); map.delete(this.settings.draw.connections[engine].active); this.storeImageKeys(engine, map); return; }
         this.keyStore.save(engine, '');
-        if (engine === 'nai') { this.novelai.setKey(''); this.subscription = null; } else if (engine === 'gpt') this.gptKey = ''; else { this.providers.setKey(engine, ''); this.balances.delete(engine); }
+        this.providers.setKey(engine, ''); this.balances.delete(engine);
         this.emit('keys', { engine, configured: false });
     }
     /** What is left on a voice account (ElevenLabs credits, Fish API balance); null without a key. Cached for a minute. */
@@ -373,7 +384,7 @@ export class TTSBackend {
         return clone(value);
     }
     /** The last 4 characters of the saved key ('' without one), so the user can tell which key is in use. */
-    keyHint(engine) { keyCheck(engine); if (engine === 'gpt') return keyTail(this.gptKey); if (engine !== 'nai' && engine !== 'llm') return keyTail(this.providers.currentKey(engine)); if (engine === 'llm') return this.textKeyHint(this.settings.text.active); try { return keyTail(this.keyStore.load().get(engine) || ''); } catch { return ''; } }
+    keyHint(engine) { keyCheck(engine); if (engine === 'nai' || engine === 'gpt') return keyTail(this.imageKeys[engine].get(this.settings.draw.connections[engine].active)); if (engine === 'llm') return this.textKeyHint(this.settings.text.active); return keyTail(this.providers.currentKey(engine)); }
     /** For a voice engine with keys: how many, which one is in use (1-based) and how many were refused while this page is open. */
     keyPool(engine) { engineCheck(engine); return this.providers.keyPool(engine); }
     keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'gpt' ? !!this.gptKey : engine === 'llm' ? this.textKeys.has(this.settings.text.active) : this.providers.keys.has(engine); }
@@ -606,6 +617,76 @@ export class TTSBackend {
     textModels(draft) { const text = activeText(this.textWith(draft)); return listModels({ text, key: this.textKeys.get(text.id) || '' }); }
 
     // ---------- Drawing ----------
+    assertImageIdle() { this.assertOpen(); if (this.drawQueue.pending) throw Error('还有图片正在生成或排队，请等完成或取消队列后再换生图连接'); }
+    activateImageKeys() {
+        this.novelai.setKey(this.imageKeys.nai.get(this.settings.draw.connections.nai.active) || '');
+        this.novelai.relay = this.settings.draw.relay.url;
+        this.gptKey = this.imageKeys.gpt.get(this.settings.draw.connections.gpt.active) || '';
+        this.subscription = null;
+        this.imageConnectionRevision++;
+    }
+    storeImageKeys(engine, map) {
+        this.keyStore.save(engine, joinTextKeys(map));
+        this.imageKeys[engine] = map;
+        this.activateImageKeys();
+        this.emit('keys', {engine, configured: this.keyStatus(engine)});
+    }
+    commitImageConnection(next, engine, map) {
+        // Validate before either store is touched. A synchronous key-storage failure must not leave a new
+        // address paired with the previous secret; a host persistence failure restores the previous keys.
+        validateSettings(normalizeSettings(next));
+        const before = this.imageKeys[engine];
+        this.keyStore.save(engine, joinTextKeys(map));
+        this.imageKeys[engine] = map;
+        try { this.save(next); }
+        catch (error) { this.imageKeys[engine] = before; this.keyStore.save(engine, joinTextKeys(before)); throw error; }
+        this.activateImageKeys();
+        this.emit('keys', {engine, configured: this.keyStatus(engine)});
+    }
+    imageConnectionList(engine) {
+        if (!['nai', 'gpt'].includes(engine)) throw Error('生图引擎无效');
+        const group = this.settings.draw.connections[engine];
+        return group.presets.map(p => ({...clone(p), current: p.id === group.active, configured: this.imageKeys[engine].has(p.id), tail: keyTail(this.imageKeys[engine].get(p.id))}));
+    }
+    /** Missing id creates and selects an empty connection; a blank key keeps its saved key. */
+    saveImageConnection(engine, patch = {}) {
+        this.imageConnectionList(engine); this.assertImageIdle();
+        const next = this.getState(), group = next.draw.connections[engine];
+        const id = patch.id || crypto.randomUUID(), old = group.presets.find(p => p.id === id);
+        if (patch.id && !old) throw Error('这组生图连接已经不在了');
+        const name = String(patch.name ?? old?.name ?? `连接 ${group.presets.length + 1}`).trim();
+        if (!name || name.length > 60) throw Error('请填写连接名称（最多 60 字）');
+        const url = (engine === 'nai' ? relayUrl : gptBase)(patch.url ?? old?.url ?? '');
+        const item = {id, name, url};
+        if (engine === 'nai') item.assumeOpus = patch.assumeOpus ?? old?.assumeOpus ?? false;
+        else { item.model = String(patch.model ?? old?.model ?? 'gpt-image-1').trim(); if (!/^[\w.:/-]{1,80}$/.test(item.model)) throw Error('模型名称无效'); }
+        const typed = String(patch.key ?? '').trim();
+        // The public editing API accepts one key, never the internal backup representation.
+        if (typed.includes('\t') || typed.includes('\n')) throw Error('每组连接请填写一个密钥');
+        const key = typed ? validateKey(engine, typed) : '';
+        if (old) group.presets[group.presets.indexOf(old)] = item; else group.presets.push(item);
+        group.active = id; applyImageConnection(next.draw, engine);
+        const map = new Map(this.imageKeys[engine]);
+        if (key) map.set(id, key);
+        this.commitImageConnection(next, engine, map);
+        return this.imageConnectionList(engine).find(p => p.id === id);
+    }
+    selectImageConnection(engine, id) {
+        if (!this.imageConnectionList(engine).some(p => p.id === id)) throw Error('这组生图连接已经不在了');
+        const next = this.getState(); next.draw.connections[engine].active = id;
+        applyImageConnection(next.draw, engine); this.save(next);
+    }
+    deleteImageConnection(engine, id) {
+        const list = this.imageConnectionList(engine);
+        if (!list.some(p => p.id === id)) throw Error('这组生图连接已经不在了');
+        if (list.length < 2) throw Error('请至少保留一组生图连接');
+        this.assertImageIdle();
+        const next = this.getState(), group = next.draw.connections[engine];
+        group.presets = group.presets.filter(p => p.id !== id);
+        if (group.active === id) group.active = group.presets[0].id;
+        applyImageConnection(next.draw, engine);
+        const map = new Map(this.imageKeys[engine]); map.delete(id); this.commitImageConnection(next, engine, map);
+    }
     saveDraw(patch) {
         if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw Error('绘图设置格式无效');
         const next = this.getState(), draw = next.draw;
@@ -635,6 +716,11 @@ export class TTSBackend {
         // The 画风 picked belongs to the engine in use.
         if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); if (draw.engine === 'nai') draw.activeStyle = patch.activeStyle; else draw[draw.engine].style = patch.activeStyle; }
         if ('activePreset' in patch) { if (!draw.presets.some(p => p.id === patch.activePreset)) throw Error('绘图预设不存在'); draw.activePreset = patch.activePreset; }
+        // Existing address/model controls edit the selected connection, preserving every other one.
+        for (const engine of ['nai', 'gpt']) {
+            const group = draw.connections[engine], p = group.presets.find(p => p.id === group.active);
+            Object.assign(p, engine === 'nai' ? draw.relay : {url: draw.gpt.url, model: draw.gpt.model});
+        }
         this.save(next);
         return clone(this.settings.draw);
     }
@@ -682,7 +768,9 @@ export class TTSBackend {
         if (!this.novelai.configured) return null;
         if (!refresh && this.subscription && Date.now() - this.subscription.checkedAt < 10 * 60 * 1000) return clone(this.subscription);
         this.novelai.relay = this.settings.draw.relay.url;
-        this.subscription = await this.novelai.subscription();
+        const revision = this.imageConnectionRevision, subscription = await this.novelai.subscription();
+        if (revision !== this.imageConnectionRevision) return null;
+        this.subscription = subscription;
         this.emit('draw', { subscription: this.subscription });
         return clone(this.subscription);
     }
@@ -1275,6 +1363,7 @@ export class TTSBackend {
             previewPrompt: preset => this.previewPrompt(preset), promptPlan: () => clone(promptPlan(this.settings, modelRules(this.settings))), parse: text => this.parse(text),
             voiceBalance: (engine, refresh) => this.voiceBalance(engine, refresh), keyStatus: engine => this.keyStatus(engine), keyHint: engine => this.keyHint(engine), keyPool: engine => this.keyPool(engine), keyList: engine => this.keyList(engine), addKeys: (engine, value) => this.addKeys(engine, value), removeKey: (engine, index) => this.removeKey(engine, index), useKey: (engine, index) => this.useKey(engine, index), setKey: (engine, key) => this.setKey(engine, key), clearKey: engine => this.clearKey(engine),
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
+            imageConnectionList: engine => this.imageConnectionList(engine), saveImageConnection: (engine, patch) => this.saveImageConnection(engine, patch), selectImageConnection: (engine, id) => this.selectImageConnection(engine, id), deleteImageConnection: (engine, id) => this.deleteImageConnection(engine, id),
             drawReady: () => this.drawReady(), drawMissing: () => this.drawMissing(), paidPrompt: () => this.paidPrompt(), comfyCatalog: url => this.comfyCatalog(url), comfyWorkflows: () => this.comfyWorkflows(), comfyWorkflow: name => this.comfyWorkflow(name),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },

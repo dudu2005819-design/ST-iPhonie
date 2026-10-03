@@ -5,7 +5,7 @@ import {icon, spark} from './icons.js';
 
 export function enginesApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'engines'), drafts = new Map();
-  let engine = null, dirty = false, subscription = null, subscriptionError = '', subscriptionStatus = 0, textDraft = null, models = [];
+  let engine = null, dirty = false, subscription = null, subscriptionError = '', subscriptionStatus = 0, textDraft = null, models = [], subscriptionLoad = 0;
   // ComfyUI: what the last connection check found ({models, samplers, schedulers} or {error}), and the tavern's workflows.
   let comfyInfo = null;
   // The wallet is a stack: the last card is the one in front. A tap on another card draws it to the front; a tap on
@@ -84,10 +84,40 @@ export function enginesApp(ctx) {
     return `<div class="group pad"><p class="probe-line">${draw}</p><p class="probe-line">${sub}</p></div>`;
   }
   async function loadSubscription(refresh) {
+    const load = ++subscriptionLoad;
     subscriptionError = ''; subscriptionStatus = 0;
-    try { subscription = await api.naiSubscription(refresh); }
-    catch (error) { subscription = null; subscriptionError = error.message; subscriptionStatus = error.status || 0; }
-    if (!v.disposed) render();
+    try { const result = await api.naiSubscription(refresh); if (load !== subscriptionLoad) return; subscription = result; }
+    catch (error) { if (load !== subscriptionLoad) return; subscription = null; subscriptionError = error.message; subscriptionStatus = error.status || 0; }
+    if (!v.disposed && (engine === null || engine === 'nai')) {
+      // A balance response may arrive while the user is typing the new connection.
+      const fields = [...v.root.querySelectorAll('[data-field]')].filter(el => el.type !== 'checkbox').map(el => [el.dataset.field, el.value, el.type]);
+      render();
+      for (const [name, value, type] of fields) { const el = v.root.querySelector(`[data-field="${name}"]`); if (el) { el.value = value; if (name === 'key') el.type = type; } }
+    }
+  }
+
+  function imageConnections(id) {
+    const list = api.imageConnectionList(id), current = list.find(p => p.current);
+    return groupTitle('已存连接', help('每组连接分别保存名称、地址和密钥。点名称就切换，之后出图用选中的这一组；不会自动换到别的中转。新建时密钥留空，避免把上一家的密钥发到新地址。'))
+      + `<div class="group pad"><div class="text-presets">${list.map(p => `<button type="button" class="combo-chip" data-action="image-connection" data-id="${esc(p.id)}" aria-pressed="${p.current}">${esc(p.name)} · ${p.configured ? '•••• ' + esc(p.tail || '已存') : '未填密钥'}</button>`).join('')}${btn('image-new', icon('add') + '新建', 'chip-button')}</div>
+        ${field('连接名称', input('image-name', current.name, 'text', 'maxlength="60"'))}
+        <div class="key-actions">${btn('image-save', '保存这组连接', 'primary')}${list.length > 1 ? btn('image-delete', '删除这组', 'danger') : ''}</div>
+        <p class="hint" style="padding:0">保存会一起记住下方填写的地址和密钥；密钥留空会保留原来的。</p></div>`;
+  }
+  function imageSaved() {
+    subscriptionLoad++; subscription = null; subscriptionError = ''; subscriptionStatus = 0;
+    render(); if (engine === 'nai' && api.keyStatus('nai')) loadSubscription(true);
+  }
+  function saveImageForm() {
+    const read = name => v.root.querySelector(`[data-field="${name}"]`)?.value;
+    const id = api.getState().draw.connections[engine].active;
+    api.saveImageConnection(engine, {id, name: read('image-name'), key: read('key'), url: read(engine === 'nai' ? 'relay' : 'gpt-url'), ...(engine === 'gpt' ? {model: read('gpt-model')} : {})});
+    imageSaved(); ctx.notify('这组连接已保存');
+  }
+  async function leaveImageForm() {
+    const list = api.imageConnectionList(engine), current = list.find(p => p.current), read = name => v.root.querySelector(`[data-field="${name}"]`)?.value;
+    const changed = read('image-name') !== current.name || !!read('key')?.trim() || read(engine === 'nai' ? 'relay' : 'gpt-url') !== current.url || (engine === 'gpt' && read('gpt-model') !== current.model);
+    return !changed || await ctx.confirm('放弃未保存的修改？', '这组连接的名称、地址或密钥还没保存。返回后先点「保存这组连接」就能保留。');
   }
 
   function renderNovelAI() {
@@ -95,6 +125,7 @@ export function enginesApp(ctx) {
     v.root.dataset.engine = 'nai';
     v.draw(heading('NovelAI', '', 'Image Card')
       + card('nai', 'div')
+      + imageConnections('nai')
       + groupTitle('连接')
       + `<div class="group pad">
           <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint?.(engine) ? '，末尾 ' + esc(api.keyHint(engine)) : ''}` : '还没有填写'}</span></div>
@@ -129,6 +160,7 @@ export function enginesApp(ctx) {
     v.draw(heading('GPT 生图', '', 'Image Card')
       + card('gpt', 'div')
       + drawingWith('gpt')
+      + imageConnections('gpt')
       + groupTitle('连接')
       + `<div class="group pad">
           <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存${api.keyHint('gpt') ? '，末尾 ' + esc(api.keyHint('gpt')) : ''}` : '还没有填写'}</span></div>
@@ -345,6 +377,7 @@ export function enginesApp(ctx) {
 
   v.on('change', '[data-field]', el => {
     if (el.dataset.field === 'key') return;
+    if (el.dataset.field === 'image-name') return;
     if (engine === 'llm') {
       const key = el.dataset.field.replace(/^text-/, '');
       if (!['name', 'url', 'model', 'temperature', 'maxTokens'].includes(key)) return;
@@ -352,11 +385,11 @@ export function enginesApp(ctx) {
       changed();
       return;
     }
-    if (el.dataset.field === 'gpt-model') { try { api.saveDraw({gpt: {model: el.value.trim()}}); ctx.notify('模型已保存'); } catch (error) { ctx.notify(error.message); } render(); return; }
+    if (el.dataset.field === 'gpt-model') { api.saveDraw({gpt: {model: el.value.trim()}}); return; }
     if (el.dataset.field === 'comfy-model') { api.saveDraw({comfy: {model: el.value.trim()}}); render(); return; }
     if (['gpt-url', 'comfy-url', 'comfy-workflow'].includes(el.dataset.field)) return;
-    if (el.dataset.field === 'guard') { api.saveDraw({guard: el.checked}); render(); return; }
-    if (el.dataset.field === 'relayOpus') { api.saveDraw({relay: {assumeOpus: el.checked}}); render(); return; }
+    if (el.dataset.field === 'guard') { api.saveDraw({guard: el.checked}); return; }
+    if (el.dataset.field === 'relayOpus') { api.saveDraw({relay: {assumeOpus: el.checked}}); return; }
     if (el.dataset.field === 'relay') return;
     if (el.dataset.field === 'relayApi') { api.saveConnection('fish', {relayApi: el.value}); draft().relayApi = el.value; balances.delete('fish'); render(); return; }
     draft()[el.dataset.field] = el.value; changed(); render();
@@ -409,6 +442,18 @@ export function enginesApp(ctx) {
   });
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
+      case 'image-save': saveImageForm(); break;
+      case 'image-new':
+        if (await leaveImageForm()) { api.saveImageConnection(engine); imageSaved(); ctx.notify('已新建连接，请填写地址和密钥'); }
+        break;
+      case 'image-connection':
+        if (el.dataset.id !== api.getState().draw.connections[engine].active && await leaveImageForm()) { api.selectImageConnection(engine, el.dataset.id); imageSaved(); ctx.notify('已切换生图连接'); }
+        break;
+      case 'image-delete': {
+        const p = api.imageConnectionList(engine).find(p => p.current);
+        if (await ctx.confirm('删除这组连接？', `「${p.name}」的地址和密钥会一起删掉，其他组保留。`)) { api.deleteImageConnection(engine, p.id); imageSaved(); ctx.notify('已删除这组连接'); }
+        break;
+      }
       case 'engine': if (order.at(-1) === el.dataset.engine) edit(el.dataset.engine); else bringFront(el.dataset.engine); break;
       case 'text-source': textDraft.source = el.dataset.source; changed(); dirty = true; render(); break;
       case 'text-preset': if (textDraft.active !== el.dataset.id) { textDraft.active = el.dataset.id; models = []; changed(); dirty = true; render(); } break;
@@ -453,14 +498,10 @@ export function enginesApp(ctx) {
         if (typed.trim()) loadBalance(engine, true);
         break;
       }
-      case 'save-key': if (engine === 'llm') { api.setTextKey(textDraft.active, v.root.querySelector('[data-field=key]').value); render(); ctx.notify('密钥已保存'); break; } api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); if (engine === 'nai') loadSubscription(true); else loadBalance(engine, true); break;
+      case 'save-key': if (engine === 'nai' || engine === 'gpt') { saveImageForm(); break; } if (engine === 'llm') { api.setTextKey(textDraft.active, v.root.querySelector('[data-field=key]').value); render(); ctx.notify('密钥已保存'); break; } api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); loadBalance(engine, true); break;
       case 'refresh-subscription': await v.busy(el, () => loadSubscription(true)); break;
       case 'save-relay': {
-        const url = v.root.querySelector('[data-field=relay]').value;
-        api.saveDraw({relay: {url}});
-        subscription = null; render();
-        ctx.notify(api.getState().draw.relay.url ? '中转地址已保存' : '已改回直连 NovelAI');
-        if (api.keyStatus('nai')) loadSubscription(true);
+        saveImageForm();
         break;
       }
       case 'save-fish-relay': {
@@ -483,8 +524,7 @@ export function enginesApp(ctx) {
       case 'open-draw': ctx.open('draw'); break;
       case 'use-draw-engine': api.saveDraw({engine: el.dataset.engine}); render(); ctx.notify(`绘图改用 ${nameOf(el.dataset.engine)} 画`); break;
       case 'save-gpt-url': {
-        api.saveDraw({gpt: {url: v.root.querySelector('[data-field=gpt-url]').value}});
-        render(); ctx.notify(api.getState().draw.gpt.url ? '接口地址已保存' : '已改回直连 OpenAI');
+        saveImageForm();
         break;
       }
       case 'save-comfy-url': api.saveDraw({comfy: {url: v.root.querySelector('[data-field=comfy-url]').value}}); render(); ctx.notify('ComfyUI 地址已保存'); break;
@@ -522,6 +562,7 @@ export function enginesApp(ctx) {
         break;
       }
       case 'clear-key': if (engine === 'llm') { if (await ctx.confirm('清除这套接口的密钥？', '其他接口预设的密钥不受影响。')) { api.clearTextKey(textDraft.active); render(); } break; }
+        if (engine === 'nai' || engine === 'gpt') { if (await ctx.confirm('清除这组连接的密钥？', '其他连接的密钥保留，这组之后需要重新填写。')) { api.clearKey(engine); imageSaved(); } break; }
         if (await ctx.confirm(['nai', 'gpt'].includes(engine) ? '清除密钥？' : '清除全部密钥？', '之后使用这个引擎需要重新填写。')) { api.clearKey(engine); if (engine === 'nai') subscription = null; balances.delete(engine); render(); } break;
       case 'reveal-key': {
         const field = v.root.querySelector('[data-field=key]');
