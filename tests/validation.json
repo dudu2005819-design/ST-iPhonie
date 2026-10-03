@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-10-03T14:57:55.882Z",
+  "checkedAt": "2026-10-03T15:13:22.992Z",
   "node": "v24.14.0",
   "fullSuite": {
     "command": "node --test --test-concurrency=1 --test-reporter=tap tests/core.test.mjs tests/role-persistence.test.mjs tests/dialogue-presentation.test.mjs tests/library.test.mjs tests/player-backend.test.mjs tests/provider-contract.test.mjs tests/backend.test.mjs tests/draw.test.mjs tests/queue.test.mjs tests/plan.test.mjs tests/chat.test.mjs tests/phone-ui.test.mjs tests/download.test.mjs tests/diagnostics.test.mjs tests/moments.test.mjs tests/call.test.mjs tests/llm.test.mjs tests/sync.test.mjs tests/compat.test.mjs tests/mimo.test.mjs tests/vibes.test.mjs tests/keystore.test.mjs tests/lore.test.mjs tests/stream.test.mjs tests/lan.test.mjs tests/apps.test.mjs tests/idb.test.mjs tests/image-engines.test.mjs tests/image-connections.test.mjs tests/comfy-workflows.test.mjs tests/comfy-loras.test.mjs tests/comfy-draft.test.mjs tests/wallet.test.mjs",
@@ -17,7 +17,7 @@
     "facadeMembers": 183
   },
   "branchSuite": {
-    "command": "npm test --prefix tests",
+    "command": "node --test tests/image-connections.test.mjs tests/comfy-workflows.test.mjs tests/comfy-loras.test.mjs tests/comfy-draft.test.mjs",
     "count": 30,
     "passed": 30,
     "failed": 0
@@ -34,7 +34,7 @@
     "driverAccepted": false,
     "browserPreview": true,
     "localPreview": "artifacts/comfy-drawing-preview.html; scripts/preview-comfy.cjs --server-only; actual phone UI with isolated demo settings and mocked model lists",
-    "browserPreviewEvidence": "tests/preview/evidence.json; actual phone UI with isolated demo backend and mocked catalogues, not real SillyTavern"
+    "browserPreviewEvidence": "cleanup.browserPreview (current rerun); tests/preview/evidence.json and screenshots (round 117); isolated demo backend, not real SillyTavern"
   },
   "sourceFiles": [
     {
@@ -287,15 +287,15 @@
     },
     {
       "path": "ui/comfy-lora-panel.js",
-      "sha256": "6742712ac4dd74b3607fceee2e760a12cfd0463f2121ac212fa3d84a6adbcfb5"
+      "sha256": "82b9ea1b19110101ea2862a4b376481632e6886d3fb82d246f664e0b954765a4"
     },
     {
       "path": "ui/comfy-loras.js",
-      "sha256": "8ed2f568d006a3ed8362fe4bccbff080dcc68a0551f25110cd87dc9cf49f9431"
+      "sha256": "9a0106bdcdc83df25eba97a733cbb1713bd8026a0ef42835f6552dceb36637eb"
     },
     {
       "path": "ui/comfy-plans.js",
-      "sha256": "50a3d19faa7f1f4e058fa7e3bbc98c3cef25e00e12b04b89b3a4247fa50c73b2"
+      "sha256": "e3a5b811aa5a35a1b5774613819cba8f1b6a2270b14319aff0a2d78400a0382c"
     },
     {
       "path": "ui/common.js",
@@ -303,7 +303,7 @@
     },
     {
       "path": "ui/draw.js",
-      "sha256": "8aa095862a444bb266b01913ca31b5c65dbc26507ecd3b673ace1870809ca9ef"
+      "sha256": "4e2eb78b0b3249b406d4e3d21bed1e4b7ae563fb43645bf6eaf83e1dfa5d031e"
     },
     {
       "path": "ui/engines.js",
@@ -343,7 +343,7 @@
     },
     {
       "path": "ui/phone.css",
-      "sha256": "514ec9c5a2dacdf43bec97be3e3b5c0e87d6af2dd4a28943b48cd6353479ccc7"
+      "sha256": "ac229f067bb9832b4c443896789adcc41d09f664544ae4586c8eb526f3203a1f"
     },
     {
       "path": "ui/phone.js",
@@ -405,5 +405,49 @@
     "fullRetest": "passed 306/306 before and after final scheme placement change",
     "logInMaintenanceWorkspace": "tests/comfy-lora-gallery-first-run.tap",
     "round": 116
+  },
+  "cleanup": {
+    "baselineRevision": "d6eed3b85eeaba196e36530e19c109e41f952616",
+    "scope": "Recent ComfyUI drawing UI only; not a full repository audit",
+    "gateRecordInMaintenanceWorkspace": "artifacts/comfy-cleanup-gate.json",
+    "decision": "Local Fix / Staged Refactor",
+    "budget": {
+      "maxFiles": 8,
+      "maxChangedLines": 400
+    },
+    "sourceDiff": {
+      "files": 5,
+      "added": 31,
+      "removed": 86,
+      "netRemoved": 55
+    },
+    "focusedBaseline": {
+      "count": 21,
+      "passed": 21
+    },
+    "focusedAfter": {
+      "count": 21,
+      "passed": 21
+    },
+    "removed": "Unreachable bulk LoRA editor and direct-save/reset modes; unused styles/imports and plan argument; duplicate change listener",
+    "preserved": "Current card/draft UI, layout, slider precision, cancellation, save/restore, migrations, keys, backend API and queue snapshots",
+    "browserPreview": {
+      "checkedAt": "2026-10-03T15:11:43.763Z",
+      "environment": "Headless Edge, actual phone UI, isolated demo backend and mocked catalogues",
+      "checks": [
+        "Matching empty canvas heights across ComfyUI, NovelAI and GPT: {\"comfy\":360,\"nai\":360,\"gpt\":360}",
+        "Scheme controls only appear inside the LoRA tab",
+        "Pointer drag updates the strength readout and drawing draft",
+        "LoRA applies to draft",
+        "Parameters and LoRA save together",
+        "No horizontal overflow at 320",
+        "No horizontal overflow at 390",
+        "No horizontal overflow at 430",
+        "No horizontal overflow at 768"
+      ],
+      "errors": [],
+      "realSillyTavern": false,
+      "realGeneration": false
+    }
   }
 }

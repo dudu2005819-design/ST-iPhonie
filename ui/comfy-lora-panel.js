@@ -49,7 +49,7 @@ export function comfyLoraPanel({ctx, api, root, rerender}) {
   }
   function open(options) {
     syncConnection(); editor?.close();
-    editor = editComfyLoras(ctx, rerender, {draft: true, catalog: names, ...options});
+    editor = editComfyLoras(ctx, rerender, {catalog: names, ...options});
   }
   async function read() {
     syncConnection(); controller?.abort(); controller = new AbortController();

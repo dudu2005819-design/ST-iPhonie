@@ -2,7 +2,7 @@ import {esc, btn, field, input, select, help, groupTitle} from './common.js';
 import {icon} from './icons.js';
 
 /** The drawing app owns the entry points; the backend owns the working copy. */
-export function comfyPlans(ctx, view, render) {
+export function comfyPlans(ctx, render) {
   const {api} = ctx;
   let panel = null;
   const draft = () => api.getComfyDraft();

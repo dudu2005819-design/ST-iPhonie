@@ -1285,9 +1285,6 @@ small.peek-draw{cursor:default;color:var(--ink2)}
 .comfy-strengths{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .comfy-strengths:empty{display:none}
 .lora-strengths .field[hidden]{display:none}
-.comfy-lora-name{min-width:0;overflow-wrap:anywhere}
-.comfy-lora-name .info{display:inline-flex;margin-left:5px}
-.comfy-advanced summary{font-size:12px;color:var(--ink2);cursor:pointer;padding:8px 0}
 .comfy-import{display:flex;gap:8px;flex-wrap:wrap}
 .comfy-confirm{border:1px solid var(--line)}
 .comfy-confirm p{margin:0}

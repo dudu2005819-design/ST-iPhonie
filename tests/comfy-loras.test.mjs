@@ -11,6 +11,7 @@ const {freshState} = await import(new URL('core/state.js', source));
 const {DEFAULT_COMFY_WORKFLOW: BASE, comfyLoras} = await import(new URL('core/image-engines.js', source));
 const {inspectLoras, editLoras, activeLoraWorkflow} = await import(new URL('core/comfy-loras.js', source));
 const {editComfyLoras} = await import(new URL('ui/comfy-loras.js', source));
+const {comfyLoraPanel} = await import(new URL('ui/comfy-lora-panel.js', source));
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const add = (text, file, source = '4') => editLoras(text, {add: {source, lora_name: file, strength_model: .8, strength_clip: .6}});
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 1, 2, 3, 4]).toString('base64');
@@ -102,18 +103,23 @@ test('edited scheme and original template survive reopening and backup; disabled
   } finally { await f.backend.close(); await restored.backend.close(); }
 });
 
-test('editor adds from the default, saves a copy, replaces and disables a LoRA, then restores the original graph', async () => {
+test('card editor applies changes to the draft; plan saving and gallery restore keep the original graph', async () => {
   const f = await fixture(); let e;
   try {
     e = editor(f); e.set('lora-new-file', 'alice.safetensors'); e.set('lora-new-model', '.7'); await e.click('lora-add');
     assert.equal(f.api.getState().draw.comfy.workflows.length, 1, 'draft does not save automatically');
-    e.set('lora-plan-name', '水彩'); await e.click('lora-save-as');
-    assert.equal(e.d.live, false); const p = f.api.getState().draw.comfy.workflows.find(p => p.name === '水彩');
+    assert.equal(e.d.live, false); const p = f.api.saveComfyDraft({name: '水彩', copy: true});
     assert.ok(p); assert.equal(inspectLoras(p.workflow).nodes[0].strength_model, .7); e.close();
-    e = editor(f); e.set('lora-file', 'bob.safetensors'); e.set('lora-clip-strength', '.3'); e.q('[data-lora-enabled]').checked = false; await e.click('lora-save'); e.close();
+    e = editor(f, {}, {nodeId: inspectLoras(p.workflow).nodes[0].id});
+    e.set('lora-file', 'bob.safetensors'); e.set('lora-clip-strength', '.3'); e.q('[data-lora-enabled]').checked = false; await e.click('lora-apply'); e.close();
+    assert.equal(f.api.getState().draw.comfy.workflow, p.workflow, 'card apply does not save the scheme');
+    f.api.saveComfyDraft();
     const updated = f.api.getState().draw.comfy;
     assert.equal(inspectLoras(updated.workflow).nodes[0].name, 'bob.safetensors'); assert.equal(updated.disabledLoras.length, 1);
-    e = editor(f); await e.click('lora-reset'); await e.click('lora-reset'); await e.click('lora-save');
+    const gallery = comfyLoraPanel({ctx: {confirm: async () => true}, api: f.api, root: () => null, rerender() {}});
+    try { await gallery.click({dataset: {action: 'lora-restore'}}); } finally { gallery.dispose(); }
+    assert.equal(f.api.getState().draw.comfy.workflow, updated.workflow, 'restore remains a draft until saved');
+    f.api.saveComfyDraft();
     assert.deepEqual(JSON.parse(f.api.getState().draw.comfy.workflow), JSON.parse(BASE)); assert.deepEqual(f.api.getState().draw.comfy.disabledLoras, []);
   } finally { e?.close(); await f.backend.close(); }
 });
@@ -122,7 +128,7 @@ test('catalogue replies preserve unsaved form input, old transport replies are i
   const f = await fixture(); let e, reply, signal;
   try {
     const workflow = add(BASE, 'old.safetensors'); f.api.saveComfyWorkflow({name: 'A', workflow});
-    e = editor(f, {comfyLoras: options => { signal = options.signal; return new Promise(resolve => { reply = resolve; }); }});
+    e = editor(f, {comfyLoras: options => { signal = options.signal; return new Promise(resolve => { reply = resolve; }); }}, {nodeId: inspectLoras(workflow).nodes[0].id});
     await e.click('lora-read'); e.set('lora-file', 'typed.safetensors'); e.set('lora-model-strength', '.35');
     reply(['<script>.safetensors']); await tick();
     assert.equal(e.q('[data-field=lora-file]').value, 'typed.safetensors'); assert.equal(e.q('[data-field=lora-model-strength]').value, '.35');
@@ -141,14 +147,14 @@ test('focused sliders preserve exact imported strengths until moved and hide ina
     const id = inspectLoras(workflow).nodes[0].id;
     workflow = editLoras(workflow, {updates: [{id, strength_model: 7.123, strength_clip: -.333}]});
     f.api.saveComfyWorkflow({name: 'precise', workflow});
-    e = editor(f, {}, {draft: true, nodeId: id});
+    e = editor(f, {}, {nodeId: id});
     const slider = e.q('[data-field=lora-model-strength]');
     assert.equal(slider.type, 'range'); assert.ok(Number(slider.max) >= 7.123);
     // Browsers round a range thumb to its step before any input event.
     slider.value = '7.1'; await e.click('lora-apply'); e.close();
     assert.equal(f.api.getComfyDraft().loras.nodes[0].strength_model, 7.123);
     assert.equal(f.api.getComfyDraft().loras.nodes[0].strength_clip, -.333);
-    e = editor(f, {}, {draft: true, nodeId: id}); e.set('lora-clip-strength', '-.5');
+    e = editor(f, {}, {nodeId: id}); e.set('lora-clip-strength', '-.5');
     assert.equal(e.q('[data-field=lora-clip-strength]').closest('.field').querySelector('output').textContent, '-.5');
     await e.click('lora-apply'); e.close();
     assert.equal(f.api.getComfyDraft().loras.nodes[0].strength_clip, -.5);
@@ -160,7 +166,7 @@ test('focused sliders preserve exact imported strengths until moved and hide ina
     graph['20'] = {class_type: 'CheckpointLoaderSimple', inputs: {ckpt_name: 'other.safetensors'}};
     graph['21'] = {class_type: 'OtherModelConsumer', inputs: {model: ['20', 0]}};
     f.api.saveComfyWorkflow({name: 'mixed', workflow: JSON.stringify(graph)}); f.api.resetComfyDraft();
-    e = editor(f, {}, {draft: true, addFile: 'flux-lora.safetensors'});
+    e = editor(f, {}, {addFile: 'flux-lora.safetensors'});
     assert.equal(e.q('[data-action=lora-add]').disabled, true);
     e.set('lora-source', '20'); assert.equal(e.q('[data-field=lora-new-clip]').closest('.field').hidden, false);
     e.set('lora-source', '4'); assert.equal(e.q('[data-field=lora-new-clip]').closest('.field').hidden, true);

@@ -17,7 +17,7 @@ export function drawApp(ctx) {
   let tab = 'prompt', prompt = '', negative = '', characters = [], seed = -1, results = [], current = -1, newest = false, busy = false, subscription = null, styleDraft = null, epoch = 0;
   // ComfyUI: models, samplers and schedulers read from it (null until 读取 is pressed).
   let comfyInfo = null, comfyRequest = 0, comfyAddress = '';
-  const plans = comfyPlans(ctx, v, () => render());
+  const plans = comfyPlans(ctx, () => render());
   const vibes = vibePanel({ctx, api, root: () => v.root, rerender: () => render()});
   const loras = comfyLoraPanel({ctx, api, root: () => v.root, rerender: () => render()});
   let queue = api.drawQueue?.() || [], cloudError = api.cloudQueueError?.() || '', cloudNote = null;
