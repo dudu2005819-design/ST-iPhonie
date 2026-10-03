@@ -1,10 +1,10 @@
 {
-  "checkedAt": "2026-10-03T11:46:51.717Z",
+  "checkedAt": "2026-10-03T12:21:40.815Z",
   "node": "v24.14.0",
   "fullSuite": {
-    "command": "node --test --test-concurrency=1 --test-reporter=tap tests/core.test.mjs tests/role-persistence.test.mjs tests/dialogue-presentation.test.mjs tests/library.test.mjs tests/player-backend.test.mjs tests/provider-contract.test.mjs tests/backend.test.mjs tests/draw.test.mjs tests/queue.test.mjs tests/plan.test.mjs tests/chat.test.mjs tests/phone-ui.test.mjs tests/download.test.mjs tests/diagnostics.test.mjs tests/moments.test.mjs tests/call.test.mjs tests/llm.test.mjs tests/sync.test.mjs tests/compat.test.mjs tests/mimo.test.mjs tests/vibes.test.mjs tests/keystore.test.mjs tests/lore.test.mjs tests/stream.test.mjs tests/lan.test.mjs tests/apps.test.mjs tests/idb.test.mjs tests/image-engines.test.mjs tests/image-connections.test.mjs tests/wallet.test.mjs",
-    "count": 286,
-    "passed": 286,
+    "command": "node --test --test-concurrency=1 --test-reporter=tap tests/core.test.mjs tests/role-persistence.test.mjs tests/dialogue-presentation.test.mjs tests/library.test.mjs tests/player-backend.test.mjs tests/provider-contract.test.mjs tests/backend.test.mjs tests/draw.test.mjs tests/queue.test.mjs tests/plan.test.mjs tests/chat.test.mjs tests/phone-ui.test.mjs tests/download.test.mjs tests/diagnostics.test.mjs tests/moments.test.mjs tests/call.test.mjs tests/llm.test.mjs tests/sync.test.mjs tests/compat.test.mjs tests/mimo.test.mjs tests/vibes.test.mjs tests/keystore.test.mjs tests/lore.test.mjs tests/stream.test.mjs tests/lan.test.mjs tests/apps.test.mjs tests/idb.test.mjs tests/image-engines.test.mjs tests/image-connections.test.mjs tests/comfy-workflows.test.mjs tests/wallet.test.mjs",
+    "count": 292,
+    "passed": 292,
     "failed": 0,
     "skipped": 0,
     "exitCode": 0,
@@ -14,13 +14,13 @@
     "javascriptFiles": 66,
     "relativeImports": "resolved",
     "declarations": "syntax and public member coverage; no full TypeScript semantic compilation",
-    "facadeMembers": 175
+    "facadeMembers": 178
   },
   "branchSuite": {
-    "failed": 0,
     "command": "npm test --prefix tests",
-    "passed": 9,
-    "count": 9
+    "count": 15,
+    "passed": 15,
+    "failed": 0
   },
   "manifest": {
     "warnings": [],
@@ -37,28 +37,40 @@
   },
   "sourceFiles": [
     {
-      "sha256": "e18b6cc6745e6942b641346da835c8862d900254307adb289a1da66572c9665a",
-      "path": "core/backend.js"
+      "path": "core/backend.js",
+      "sha256": "5098c49f32f29fef6dec8b802fb12b786aa0bce190bb20b44b1842e4942fb470"
     },
     {
-      "sha256": "a3f78312ad46616d27a6fa279e42c8ff48792d127d1de87a9ce0f2c0acedefa8",
-      "path": "core/draw-queue.js"
+      "path": "core/draw-queue.js",
+      "sha256": "a3f78312ad46616d27a6fa279e42c8ff48792d127d1de87a9ce0f2c0acedefa8"
     },
     {
-      "sha256": "108b7b59b889300a48c1c319a56f505539091fc62578f5214e78bfc1b1dc62d9",
-      "path": "core/draw.js"
+      "path": "core/draw.js",
+      "sha256": "108b7b59b889300a48c1c319a56f505539091fc62578f5214e78bfc1b1dc62d9"
     },
     {
-      "sha256": "01360dde77264403c0875dc0f7336a151360787f8751c808ed3e34a3bef68221",
-      "path": "core/keys.js"
+      "path": "core/image-engines.js",
+      "sha256": "1fa7607ea7b763888bee552d7503590b8f4f70b57f12da509fccd60a18018524"
     },
     {
-      "sha256": "52eecef40e940501a3e619faaac7b3d31c10ee8be0ee5e463e93c99b8272b472",
-      "path": "ui/backend-client.d.ts"
+      "path": "core/keys.js",
+      "sha256": "01360dde77264403c0875dc0f7336a151360787f8751c808ed3e34a3bef68221"
     },
     {
-      "sha256": "92f6336804d4c40e51f7015cafff836ce7f85e78328bcf82ae4f53edc5050c69",
-      "path": "ui/engines.js"
+      "path": "ui/backend-client.d.ts",
+      "sha256": "67051726c5cf4ced6906a711334171628faaf9985081d39c93154050477394fa"
+    },
+    {
+      "path": "ui/engines.js",
+      "sha256": "9c1271ffbc72ae1414236919e1845cd59d18abaa58081884f926f95708119557"
+    },
+    {
+      "path": "tests/image-connections.test.mjs",
+      "sha256": "bcb9d2930d019ccb1f9fd84874e6219ae20749503cf47ce10d9d9501380539a2"
+    },
+    {
+      "path": "tests/comfy-workflows.test.mjs",
+      "sha256": "a3c814a138190ab413298f7c24569e3807f5d777fd234df3a470d20884135336"
     }
   ]
 }

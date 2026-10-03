@@ -10,7 +10,7 @@ import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
-import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW } from './image-engines.js';
+import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW, COMFY_PARAM_KEYS, applyComfyWorkflow } from './image-engines.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
@@ -224,7 +224,9 @@ export class TTSBackend {
             validateSettings(copy);
         } catch (error) { throw Error(message(error)); }
         const imageChanged = JSON.stringify([copy.draw.connections, copy.draw.engine]) !== JSON.stringify([this.settings.draw.connections, this.settings.draw.engine]);
-        if (imageChanged) this.assertImageIdle();
+        const comfyRequest = c => [c.url, c.activeWorkflow, c.workflow, ...COMFY_PARAM_KEYS.map(key => c[key])];
+        const comfyChanged = JSON.stringify(comfyRequest(copy.draw.comfy)) !== JSON.stringify(comfyRequest(this.settings.draw.comfy));
+        if (imageChanged || comfyChanged) this.assertImageIdle();
         // The host callback completes before the service acknowledges a new settings revision.
         this.persist(clone(copy));
         this.settings = copy;
@@ -617,7 +619,7 @@ export class TTSBackend {
     textModels(draft) { const text = activeText(this.textWith(draft)); return listModels({ text, key: this.textKeys.get(text.id) || '' }); }
 
     // ---------- Drawing ----------
-    assertImageIdle() { this.assertOpen(); if (this.drawQueue.pending) throw Error('还有图片正在生成或排队，请等完成或取消队列后再换生图连接'); }
+    assertImageIdle() { this.assertOpen(); if (this.drawQueue.pending) throw Error('还有图片正在生成或排队，请等完成或取消队列后再改生图连接或工作流'); }
     activateImageKeys() {
         this.novelai.setKey(this.imageKeys.nai.get(this.settings.draw.connections.nai.active) || '');
         this.novelai.relay = this.settings.draw.relay.url;
@@ -687,6 +689,33 @@ export class TTSBackend {
         applyImageConnection(next.draw, engine);
         const map = new Map(this.imageKeys[engine]); map.delete(id); this.commitImageConnection(next, engine, map);
     }
+    /** Import a new workflow or rename/update a saved one. LoRA nodes and custom inputs stay untouched. */
+    saveComfyWorkflow(patch) {
+        if (!patch || typeof patch !== 'object') throw Error('工作流格式无效');
+        const next = this.getState(), c = next.draw.comfy, old = c.workflows.find(p => p.id === patch.id);
+        if (patch.id === 'default') throw Error('默认工作流不能修改，请导入为新的一套');
+        if (patch.id && !old) throw Error('这套工作流已经不在了');
+        let name = String(patch.name ?? old?.name ?? '').trim();
+        if (!name || name.length > 60) throw Error('请填写工作流名称（最多 60 字）');
+        const workflow = checkWorkflow(patch.workflow ?? old?.workflow);
+        if (!workflow) throw Error('导入的工作流不能为空');
+        if (!old) { const stem = name; let n = 2; while (c.workflows.some(p => p.name === name)) name = stem.slice(0, 54) + ` (${n++})`; }
+        const row = {id: old?.id || crypto.randomUUID(), name, workflow, ...Object.fromEntries(COMFY_PARAM_KEYS.map(key => [key, (old || c)[key]]))};
+        if (old) c.workflows[c.workflows.indexOf(old)] = row; else c.workflows.push(row);
+        applyComfyWorkflow(c, row.id); this.save(next);
+        return clone(row);
+    }
+    selectComfyWorkflow(id) {
+        const next = this.getState(); applyComfyWorkflow(next.draw.comfy, id); this.save(next);
+    }
+    deleteComfyWorkflow(id) {
+        if (id === 'default') throw Error('默认工作流需要保留');
+        const next = this.getState(), c = next.draw.comfy;
+        if (!c.workflows.some(p => p.id === id)) throw Error('这套工作流已经不在了');
+        c.workflows = c.workflows.filter(p => p.id !== id);
+        if (c.activeWorkflow === id) applyComfyWorkflow(c, 'default');
+        this.save(next);
+    }
     saveDraw(patch) {
         if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw Error('绘图设置格式无效');
         const next = this.getState(), draw = next.draw;
@@ -710,8 +739,16 @@ export class TTSBackend {
         if ('comfy' in patch) {
             const c = patch.comfy && typeof patch.comfy === 'object' ? clone(patch.comfy) : {};
             if ('url' in c) c.url = comfyUrl(c.url);
-            if ('workflow' in c) c.workflow = checkWorkflow(c.workflow);
-            draw.comfy = normalizeComfy({ ...draw.comfy, ...c });
+            const current = draw.comfy;
+            if ('workflow' in c) {
+                c.workflow = checkWorkflow(c.workflow);
+                if (!c.workflow) applyComfyWorkflow(current, 'default');
+                else if (current.activeWorkflow === 'default') {
+                    const row = {id: crypto.randomUUID(), name: '自定义工作流', workflow: c.workflow, ...Object.fromEntries(COMFY_PARAM_KEYS.map(key => [key, current[key]]))};
+                    current.workflows.push(row); applyComfyWorkflow(current, row.id);
+                } else current.workflows.find(p => p.id === current.activeWorkflow).workflow = c.workflow;
+            }
+            draw.comfy = normalizeComfy({ ...current, ...c });
         }
         // The 画风 picked belongs to the engine in use.
         if ('activeStyle' in patch) { if (!draw.styles.some(s => s.id === patch.activeStyle)) throw Error('画风预设不存在'); if (draw.engine === 'nai') draw.activeStyle = patch.activeStyle; else draw[draw.engine].style = patch.activeStyle; }
@@ -1365,6 +1402,7 @@ export class TTSBackend {
             saveDraw: patch => this.saveDraw(patch), saveStyle: style => this.saveStyle(style), deleteStyle: id => this.deleteStyle(id),
             imageConnectionList: engine => this.imageConnectionList(engine), saveImageConnection: (engine, patch) => this.saveImageConnection(engine, patch), selectImageConnection: (engine, id) => this.selectImageConnection(engine, id), deleteImageConnection: (engine, id) => this.deleteImageConnection(engine, id),
             drawReady: () => this.drawReady(), drawMissing: () => this.drawMissing(), paidPrompt: () => this.paidPrompt(), comfyCatalog: url => this.comfyCatalog(url), comfyWorkflows: () => this.comfyWorkflows(), comfyWorkflow: name => this.comfyWorkflow(name),
+            saveComfyWorkflow: patch => this.saveComfyWorkflow(patch), selectComfyWorkflow: id => this.selectComfyWorkflow(id), deleteComfyWorkflow: id => this.deleteComfyWorkflow(id),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },
             listVibes: () => this.listVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),

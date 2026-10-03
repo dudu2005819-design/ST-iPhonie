@@ -1,0 +1,164 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {existsSync} from 'node:fs';
+import {createRequire} from 'node:module';
+const source = new URL(existsSync(new URL('../staging/extension/core/backend.js', import.meta.url)) ? '../staging/extension/' : '../', import.meta.url);
+const require = createRequire(import.meta.url);
+const dependency = name => require(existsSync(new URL('./node-dom/node_modules/' + name, import.meta.url)) ? './node-dom/node_modules/' + name : name);
+const {IDBFactory} = dependency('fake-indexeddb'), {JSDOM} = dependency('jsdom');
+const {TTSBackend} = await import(new URL('core/backend.js', source));
+const {freshState} = await import(new URL('core/state.js', source));
+const {defaultComfy, normalizeComfy, DEFAULT_COMFY_WORKFLOW} = await import(new URL('core/image-engines.js', source));
+const {enginesApp} = await import(new URL('ui/engines.js', source));
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 1, 2, 3, 4]).toString('base64');
+function workflow(name) {
+  const graph = JSON.parse(DEFAULT_COMFY_WORKFLOW);
+  graph['10'] = {class_type: 'LoraLoader', inputs: {model: ['4', 0], clip: ['4', 1], lora_name: name + '.safetensors', strength_model: .7, strength_clip: .8}};
+  graph['11'] = {class_type: 'LoraLoader', inputs: {model: ['10', 0], clip: ['10', 1], lora_name: 'watercolor.safetensors', strength_model: .4, strength_clip: .5}};
+  graph['3'].inputs.model = ['11', 0]; graph['6'].inputs.clip = ['11', 1]; graph['7'].inputs.clip = ['11', 1];
+  return JSON.stringify(graph);
+}
+async function fixture({state = freshState(), persist = () => {}, answer} = {}) {
+  const calls = [];
+  state.draw.queue.gap = 0;
+  const backend = new TTSBackend({settings: state, indexedDB: new IDBFactory(), persist,
+    keyStore: {load: () => new Map()}, sink: {stop() {}, close() {}, setVolume() {}, getVolume: () => 1},
+    imageFetch: async (url, init) => { const call = {url, body: JSON.parse(init.body)}; calls.push(call); if (answer) { const r = await answer(call); if (r) return r; } return Response.json({format: 'png', data: PNG}); }});
+  await backend.initialize();
+  return {backend, api: backend.api(), calls};
+}
+
+test('legacy workflow migrates intact beside the built-in default; normalization is stable', () => {
+  const old = {...defaultComfy(), workflow: workflow('old'), model: 'old-model', steps: 35, width: 768};
+  delete old.workflows; delete old.activeWorkflow;
+  const now = normalizeComfy(old);
+  assert.equal(now.activeWorkflow, 'legacy'); assert.equal(now.workflows.length, 2);
+  assert.equal(now.workflows[0].workflow, ''); assert.equal(now.workflows[1].name, '原有工作流');
+  assert.equal(now.workflow, old.workflow); assert.equal(now.steps, 35); assert.equal(now.model, 'old-model');
+  assert.deepEqual(normalizeComfy(now), now);
+  assert.equal(normalizeComfy().workflows.length, 1);
+});
+
+test('multiple LoRAs and their strengths survive import and switching; each preset restores its model and generation parameters', async () => {
+  const f = await fixture();
+  try {
+    f.api.saveDraw({engine: 'comfy', comfy: {model: 'base.safetensors'}});
+    const a = f.api.saveComfyWorkflow({name: '角色', workflow: workflow('alice')});
+    f.api.saveDraw({comfy: {model: 'alice-base.safetensors', steps: 21, width: 768, height: 1024, scale: 4}});
+    const b = f.api.saveComfyWorkflow({name: '角色', workflow: workflow('bob')});
+    assert.equal(b.name, '角色 (2)');
+    f.api.saveDraw({comfy: {model: 'bob-base.safetensors', steps: 32, width: 1024, height: 1536, scale: 7}});
+    f.api.selectComfyWorkflow(a.id);
+    assert.deepEqual([f.api.getState().draw.comfy.model, f.api.getState().draw.comfy.steps], ['alice-base.safetensors', 21]);
+    await f.api.generateImage({prompt: 'cat', params: {width: 768, height: 1024}});
+    f.api.selectComfyWorkflow(b.id);
+    await f.api.generateImage({prompt: 'dog', params: {width: 1024, height: 1536}});
+    const graphs = f.calls.map(call => JSON.parse(call.body.prompt).prompt);
+    for (const [i, name] of ['alice', 'bob'].entries()) {
+      assert.equal(f.calls[i].url, '/api/sd/comfy/generate');
+      assert.equal(graphs[i]['10'].inputs.lora_name, name + '.safetensors');
+      assert.deepEqual(graphs[i]['11'], JSON.parse(workflow(name))['11']);
+      assert.equal(graphs[i]['10'].inputs.strength_model, .7);
+      assert.equal(graphs[i]['4'].inputs.ckpt_name, name + '-base.safetensors');
+    }
+    assert.deepEqual(graphs.map(g => [g['3'].inputs.steps, g['3'].inputs.cfg, g['5'].inputs.width]), [[21, 4, 768], [32, 7, 1024]]);
+    assert.equal(f.api.getState().draw.comfy.workflows.find(p => p.id === a.id).workflow, workflow('alice'));
+    f.api.selectComfyWorkflow('default');
+    assert.equal(f.api.getState().draw.comfy.workflow, '');
+    assert.equal(f.api.getState().draw.comfy.workflows.length, 3);
+    assert.equal(f.api.getState().draw.comfy.model, 'base.safetensors');
+  } finally { await f.backend.close(); }
+});
+
+test('presets, selection and parameters survive reopening and settings backup; deletion preserves the other workflows', async () => {
+  let saved;
+  const f = await fixture({persist: s => { saved = s; }}), restored = await fixture();
+  try {
+    const a = f.api.saveComfyWorkflow({name: 'A', workflow: workflow('a')});
+    f.api.saveDraw({comfy: {steps: 23}});
+    const b = f.api.saveComfyWorkflow({name: 'B', workflow: workflow('b')});
+    const renamed = f.api.saveComfyWorkflow({id: b.id, name: '角色 B'});
+    assert.equal(renamed.workflow, workflow('b'));
+    const reopened = await fixture({state: saved});
+    try { assert.deepEqual(reopened.api.getState().draw.comfy, f.api.getState().draw.comfy); } finally { await reopened.backend.close(); }
+    const backup = await f.api.exportBackup(['settings']);
+    await restored.api.importBackup(backup.blob, {parts: ['settings']});
+    assert.deepEqual(restored.api.getState().draw.comfy, f.api.getState().draw.comfy);
+    restored.api.deleteComfyWorkflow(a.id);
+    assert.equal(restored.api.getState().draw.comfy.activeWorkflow, b.id);
+    restored.api.deleteComfyWorkflow(b.id);
+    assert.equal(restored.api.getState().draw.comfy.activeWorkflow, 'default');
+    assert.throws(() => restored.api.deleteComfyWorkflow('default'), /需要保留/);
+  } finally { await f.backend.close(); await restored.backend.close(); }
+});
+
+test('invalid and oversized imports, limits and host save failures do not erase saved workflows', async () => {
+  let fail = false;
+  const f = await fixture({persist: () => { if (fail) throw Error('save failed'); }});
+  try {
+    f.api.saveComfyWorkflow({name: 'A', workflow: workflow('a')});
+    const before = f.api.getState();
+    for (const value of ['', '{bad', '{"nodes":[],"links":[]}', '{"1":{"class_type":"SaveImage","inputs":{}}}', workflow('a').replace('watercolor.safetensors', 'x'.repeat(300001))]) assert.throws(() => f.api.saveComfyWorkflow({name: 'bad', workflow: value}));
+    assert.throws(() => f.api.saveComfyWorkflow({id: 'default', name: 'replace', workflow: workflow('a')}), /默认工作流/);
+    assert.deepEqual(f.api.getState(), before);
+    fail = true;
+    assert.throws(() => f.api.saveComfyWorkflow({name: 'B', workflow: workflow('b')}), /save failed/);
+    assert.deepEqual(f.api.getState(), before); fail = false;
+    while (f.api.getState().draw.comfy.workflows.length < 20) f.api.saveComfyWorkflow({name: 'A', workflow: workflow('a')});
+    assert.throws(() => f.api.saveComfyWorkflow({name: 'overflow', workflow: workflow('a')}), /最多保存/);
+    assert.equal(f.api.getState().draw.comfy.workflows.length, 20);
+  } finally { await f.backend.close(); }
+});
+
+test('generation and queued jobs keep their workflow; switches and parameter changes wait until completion', async () => {
+  const finish = [], started = [];
+  const start = [0, 1].map(i => new Promise(resolve => { started[i] = resolve; }));
+  const f = await fixture({answer: () => new Promise(resolve => { const i = finish.length; finish.push(resolve); started[i](); })});
+  try {
+    f.api.saveDraw({engine: 'comfy', comfy: {model: 'base'}});
+    const a = f.api.saveComfyWorkflow({name: 'A', workflow: workflow('a')});
+    const pending = f.api.generateImage({prompt: 'cat'}); await start[0];
+    const queued = f.api.generateImage({prompt: 'dog'});
+    assert.equal(f.api.drawQueue().filter(job => job.state === 'waiting').length, 1);
+    for (const change of [() => f.api.selectComfyWorkflow('default'), () => f.api.deleteComfyWorkflow(a.id), () => f.api.saveDraw({comfy: {steps: 44}}), () => f.api.saveComfyWorkflow({name: 'B', workflow: workflow('b')})]) assert.throws(change, /正在生成或排队/);
+    finish[0](Response.json({format: 'png', data: PNG})); await pending;
+    assert.throws(() => f.api.selectComfyWorkflow('default'), /正在生成或排队/);
+    await start[1]; finish[1](Response.json({format: 'png', data: PNG})); await queued;
+    f.api.selectComfyWorkflow('default');
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.body.prompt).prompt['10'].inputs.lora_name), ['a.safetensors', 'a.safetensors']);
+  } finally { await f.backend.close(); }
+});
+
+test('workflow UI imports files and tavern workflows, renames, switches and deletes; no JSON paste controls remain', async () => {
+  const f = await fixture(), dom = new JSDOM('<!doctype html><body></body>'), notices = [];
+  let confirm = false, dialog;
+  const api = {...f.api, comfyWorkflows: async () => ['酒馆工作流.json'], comfyWorkflow: async () => workflow('tavern')};
+  const view = enginesApp({doc: dom.window.document, win: dom.window, api, notify: s => notices.push(s), help() {}, confirm: async () => confirm,
+    dialog: (title, html) => { dialog = dom.window.document.createElement('div'); dialog.innerHTML = html; return {body: dialog, close() {}}; }});
+  const q = selector => { const el = view.root.querySelector(selector); assert.ok(el, selector); return el; };
+  const click = async action => { q(`[data-action="${action}"]`).click(); await tick(); };
+  const pick = async (name, contents) => {
+    const file = new Blob([contents], {type: 'application/json'}); Object.defineProperty(file, 'name', {value: name});
+    const input = q('[data-comfy-file]'); Object.defineProperty(input, 'files', {configurable: true, value: [file]}); input.dispatchEvent(new dom.window.Event('change', {bubbles: true})); await tick();
+  };
+  try {
+    view.edit('comfy');
+    assert.equal(view.root.querySelector('textarea[data-field=comfy-workflow]'), null);
+    assert.equal(view.root.querySelector('[data-action=save-comfy-wf]'), null);
+    await pick('bad.json', '{"nodes":[],"links":[]}');
+    assert.equal(f.api.getState().draw.comfy.workflows.length, 1); assert.match(notices.at(-1), /导出/);
+    await pick('角色.json', workflow('a')); const a = f.api.getState().draw.comfy.activeWorkflow;
+    q('[data-field=comfy-name]').value = '水彩'; await click('comfy-rename-wf');
+    assert.equal(f.api.getState().draw.comfy.workflows.find(p => p.id === a).name, '水彩');
+    await pick('角色.json', workflow('b'));
+    q('[data-field=comfy-preset]').value = a; q('[data-field=comfy-preset]').dispatchEvent(new dom.window.Event('change', {bubbles: true}));
+    assert.equal(f.api.getState().draw.comfy.workflow, workflow('a'));
+    await click('comfy-delete-wf'); assert.equal(f.api.getState().draw.comfy.workflows.length, 3);
+    confirm = true; await click('comfy-delete-wf'); assert.equal(f.api.getState().draw.comfy.activeWorkflow, 'default');
+    await click('comfy-load-wf'); dialog.querySelector('[data-wf]').click(); await tick();
+    assert.equal(f.api.getState().draw.comfy.workflow, workflow('tavern'));
+    assert.equal(q('[data-field=comfy-name]').value, '酒馆工作流');
+    assert.equal(f.api.getState().draw.comfy.workflows.length, 3);
+  } finally { view.dispose(); dom.window.close(); await f.backend.close(); }
+});

@@ -135,8 +135,10 @@ export const DEFAULT_COMFY_WORKFLOW = JSON.stringify({
   8: {class_type: 'VAEDecode', inputs: {samples: ['3', 0], vae: ['4', 2]}},
   9: {class_type: 'SaveImage', inputs: {filename_prefix: 'ST-iPhonie', images: ['8', 0]}}
 }, null, 2);
-export const COMFY_LIMITS = {workflow: 300000};
-export const defaultComfy = () => ({url: 'http://127.0.0.1:8188', workflow: '', model: '', vae: '', sampler: 'euler_ancestral', scheduler: 'normal', steps: 28, scale: 6, width: 832, height: 1216, clipSkip: 2, style: ''});
+export const COMFY_LIMITS = {workflow: 300000, presets: 20};
+const COMFY_DEFAULT_PARAMS = {model: '', vae: '', sampler: 'euler_ancestral', scheduler: 'normal', steps: 28, scale: 6, width: 832, height: 1216, clipSkip: 2};
+export const COMFY_PARAM_KEYS = Object.keys(COMFY_DEFAULT_PARAMS);
+export const defaultComfy = () => ({url: 'http://127.0.0.1:8188', workflow: '', ...COMFY_DEFAULT_PARAMS, style: '', activeWorkflow: 'default', workflows: [{id: 'default', name: '默认工作流', workflow: '', ...COMFY_DEFAULT_PARAMS}]});
 
 export function comfyUrl(value) {
   const raw = String(value ?? '').trim();
@@ -147,7 +149,7 @@ export function comfyUrl(value) {
 }
 /** The placeholders a workflow uses ("%prompt%" → prompt). */
 export const workflowPlaceholders = text => [...new Set([...String(text).matchAll(/"%([a-z_]+)%"/g)].map(m => m[1]))];
-/** Checks a pasted workflow: API format (File → Export (API)), with "%prompt%" somewhere. */
+/** Checks an imported workflow: API format (File → Export (API)), with "%prompt%" somewhere. */
 export function checkWorkflow(text) {
   const raw = String(text ?? '').trim();
   if (!raw) return '';
@@ -159,18 +161,54 @@ export function checkWorkflow(text) {
   if (!workflowPlaceholders(raw).includes('prompt')) throw Error('工作流里没有 "%prompt%"：把正面提示词那一栏的文字换成 "%prompt%"（带引号），插件才知道往哪里填');
   return raw;
 }
-export function normalizeComfy(value) {
-  const base = defaultComfy(), c = value && typeof value === 'object' ? value : {};
+function comfyParams(c) {
+  const base = COMFY_DEFAULT_PARAMS;
   const n = (v, min, max, fallback, step = 1) => { const x = Number(v); return Number.isFinite(x) ? Math.min(max, Math.max(min, Math.round(x / step) * step)) : fallback; };
   const word = (v, fallback) => { const s = String(v ?? '').trim(); return s.length <= 300 ? s : fallback; };
   return {
-    url: (() => { try { return comfyUrl(c.url ?? base.url); } catch { return base.url; } })(),
-    workflow: (() => { try { return checkWorkflow(c.workflow); } catch { return ''; } })(),
     model: word(c.model, ''), vae: word(c.vae, ''), sampler: word(c.sampler, base.sampler) || base.sampler, scheduler: word(c.scheduler, base.scheduler) || base.scheduler,
     steps: n(c.steps, 1, 150, base.steps), scale: n(c.scale, 0, 30, base.scale, .1),
-    width: n(c.width, 64, 4096, base.width, 8), height: n(c.height, 64, 4096, base.height, 8), clipSkip: n(c.clipSkip, 1, 12, base.clipSkip),
-    style: typeof c.style === 'string' ? c.style.slice(0, 64) : ''
+    width: n(c.width, 64, 4096, base.width, 8), height: n(c.height, 64, 4096, base.height, 8), clipSkip: n(c.clipSkip, 1, 12, base.clipSkip)
   };
+}
+/** Copy a selected preset into the existing fields used by the drawing pipeline. */
+export function applyComfyWorkflow(c, id = c.activeWorkflow) {
+  const p = c.workflows.find(p => p.id === id);
+  if (!p) throw Error('这套工作流已经不在了');
+  c.activeWorkflow = id; c.workflow = p.workflow;
+  for (const key of COMFY_PARAM_KEYS) c[key] = p[key];
+  return c;
+}
+export function normalizeComfy(value) {
+  const base = defaultComfy(), c = value && typeof value === 'object' ? value : {}, params = comfyParams(c);
+  const legacy = (() => { try { return checkWorkflow(c.workflow); } catch { return ''; } })();
+  let rows = Array.isArray(c.workflows) && c.workflows.length ? c.workflows : null;
+  let active = c.activeWorkflow;
+  if (!rows) {
+    rows = [{...base.workflows[0], ...params}];
+    if (legacy) { rows.push({id: 'legacy', name: '原有工作流', workflow: legacy, ...params}); active = 'legacy'; }
+  }
+  if (rows.length > COMFY_LIMITS.presets) throw Error(`最多保存 ${COMFY_LIMITS.presets} 套 ComfyUI 工作流（含默认）`);
+  const ids = new Set(), workflows = rows.map(row => {
+    const id = String(row?.id || '');
+    if (!/^[\w-]{1,64}$/.test(id) || ids.has(id)) throw Error('ComfyUI 工作流编号无效或重复');
+    ids.add(id);
+    const workflow = checkWorkflow(row.workflow);
+    if (id === 'default' && workflow) throw Error('默认工作流不能被覆盖，请另存为一套');
+    if (id !== 'default' && !workflow) throw Error('导入的工作流不能为空');
+    return {id, name: id === 'default' ? '默认工作流' : String(row.name || '未命名工作流').trim().slice(0, 60) || '未命名工作流', workflow, ...comfyParams(row)};
+  });
+  if (!ids.has('default')) {
+    if (workflows.length >= COMFY_LIMITS.presets) throw Error('请给默认工作流留出一个位置');
+    workflows.unshift(base.workflows[0]);
+  }
+  active = workflows.some(p => p.id === active) ? active : 'default';
+  const selected = workflows.find(p => p.id === active);
+  // Existing parameter controls and older callers edit the selected preset through the flat fields.
+  for (const key of COMFY_PARAM_KEYS) if (Object.hasOwn(c, key)) selected[key] = params[key];
+  const out = {url: (() => { try { return comfyUrl(c.url ?? base.url); } catch { return base.url; } })(),
+    style: typeof c.style === 'string' ? c.style.slice(0, 64) : '', workflows, activeWorkflow: active};
+  return applyComfyWorkflow(out);
 }
 /** ComfyUI size for a picture's orientation: the configured size, turned or squared to match. */
 export function comfySize(c, orientation) {

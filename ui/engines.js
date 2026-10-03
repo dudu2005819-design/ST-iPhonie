@@ -50,7 +50,7 @@ export function enginesApp(ctx) {
     const comfy = id === 'comfy', saved = comfy ? !!api.getState().draw.comfy.url : api.keyStatus(id), nai = id === 'nai', llm = id === 'llm', d = api.getState().draw;
     const name = nameOf(id), t = llm ? (engine === 'llm' && textDraft ? textDraft : api.getState().text) : null, custom = t?.source === 'custom';
     const fields = id === 'gpt' ? [['MODEL', d.gpt.model], ['QUALITY', d.gpt.quality.toUpperCase()]]
-      : comfy ? [['MODEL', d.comfy.model ? d.comfy.model.replace(/\.[^.]*$/, '').slice(0, 18) : '未选'], ['WORKFLOW', d.comfy.workflow ? '自定义' : '默认']]
+      : comfy ? [['MODEL', d.comfy.model ? d.comfy.model.replace(/\.[^.]*$/, '').slice(0, 18) : '未选'], ['WORKFLOW', d.comfy.workflows.find(p => p.id === d.comfy.activeWorkflow)?.name || '默认工作流']]
       : llm
       ? [['SOURCE', custom ? 'CUSTOM API' : 'TAVERN'], ['MODEL', custom ? t.presets.find(p => p.id === t.active)?.model || '未填写' : '跟随酒馆']]
       : nai
@@ -178,6 +178,7 @@ export function enginesApp(ctx) {
   }
   function renderComfy() {
     const c = api.getState().draw.comfy, info = comfyInfo, models = info?.models || [];
+    const current = c.workflows.find(p => p.id === c.activeWorkflow);
     v.root.dataset.engine = 'comfy';
     const placeholders = '"%prompt%"（正面）、"%negative_prompt%"（负面）、"%seed%"、"%steps%"、"%scale%"、"%width%"、"%height%"、"%sampler%"、"%scheduler%"、"%model%"、"%vae%"、"%denoise%"、"%clip_skip%"';
     v.draw(heading('ComfyUI', '', 'Image Card')
@@ -192,11 +193,12 @@ export function enginesApp(ctx) {
             ? select('comfy-model', c.model, [['', '请选择'], ...models.map(m => [m.value, m.text])])
             : input('comfy-model', c.model, 'text', 'autocomplete="off" spellcheck="false" placeholder="点上面「测试并读取模型」，或直接填文件名"'), '工作流里 "%model%" 填的就是它（默认工作流用 CheckpointLoaderSimple 读取）。')}
         </div>`
-      + groupTitle('工作流', help(`在 ComfyUI 里搭好工作流，用「导出 (API)」（Export (API)）存成 JSON 文件，点「导入 JSON 文件」选它（也可以把内容粘到框里再保存）。把需要插件填的地方写成占位符（带引号）：\n${placeholders}\n\n至少要有 "%prompt%"。留空就用酒馆自带的默认工作流（一个 checkpoint + 一个 KSampler）。酒馆的生图里存过的工作流可以直接读进来。`))
+      + groupTitle('已存工作流', help(`在 ComfyUI 里搭好工作流，用「导出 (API)」（Export (API)）存成 JSON 文件，再点「导入 JSON 文件」。每次导入新增一套，原来的保留；可以改名、切换或删除。酒馆里保存过的工作流也可以导入。\n\n文件里的 LoRA 组合和强度原样保留；模型文件和自定义节点需要在 ComfyUI 那边装好。把需要插件填的地方写成占位符（带引号）：\n${placeholders}\n\n至少要有 "%prompt%"。每套分别记住模型、步数、尺寸等参数，切换时一起恢复。默认工作流不带 LoRA，始终保留。`))
       + `<div class="group pad">
-          ${textArea('comfy-workflow', c.workflow, `class="code" rows="8" spellcheck="false" placeholder="留空 = 默认工作流"`)}
-          <div class="key-actions"><label class="file-pick"><input type="file" accept=".json,application/json" data-comfy-file aria-label="导入工作流 JSON 文件"><span>导入 JSON 文件</span></label>${btn('comfy-load-wf', '从酒馆读取', 'secondary')}</div>
-          <div class="key-actions">${btn('save-comfy-wf', '保存粘贴的工作流', 'primary')}${c.workflow ? btn('comfy-default-wf', '改回默认', 'danger') : ''}</div>
+          ${field('当前工作流', select('comfy-preset', c.activeWorkflow, c.workflows.map(p => [p.id, p.name])))}
+          ${current.id !== 'default' ? field('工作流名称', input('comfy-name', current.name, 'text', 'maxlength="60"')) + `<div class="key-actions">${btn('comfy-rename-wf', '保存名称', 'secondary')}${btn('comfy-delete-wf', '删除这套', 'danger')}</div>` : ''}
+          <p class="hint" style="padding:0">已保存 ${c.workflows.length} 套（含默认）。${current.id === 'default' ? '默认流程不带 LoRA。' : '这套工作流的 LoRA 和力度按导入文件执行。'}模型、步数和尺寸等设置也会跟着这套保存。</p>
+          <div class="key-actions"><label class="file-pick"><input type="file" accept=".json,application/json" data-comfy-file aria-label="导入工作流 JSON 文件"><span>导入 JSON 文件</span></label>${btn('comfy-load-wf', '从酒馆导入', 'secondary')}</div>
         </div>
         <p class="hint">ComfyUI 没有 NovelAI 那种分角色的提示词：插件把场景和每个人的外貌合成一条提示词；NovelAI 的权重写法（{tag}、[tag]、1.2::tag::）会换成 (tag:1.1) 这种。采样器、步数、尺寸在绘图 App 的「参数」里改。</p>
         <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
@@ -387,7 +389,8 @@ export function enginesApp(ctx) {
     }
     if (el.dataset.field === 'gpt-model') { api.saveDraw({gpt: {model: el.value.trim()}}); return; }
     if (el.dataset.field === 'comfy-model') { api.saveDraw({comfy: {model: el.value.trim()}}); render(); return; }
-    if (['gpt-url', 'comfy-url', 'comfy-workflow'].includes(el.dataset.field)) return;
+    if (el.dataset.field === 'comfy-preset') { try { api.selectComfyWorkflow(el.value); ctx.notify('已切换工作流'); } finally { render(); } return; }
+    if (['gpt-url', 'comfy-url', 'comfy-name'].includes(el.dataset.field)) return;
     if (el.dataset.field === 'guard') { api.saveDraw({guard: el.checked}); return; }
     if (el.dataset.field === 'relayOpus') { api.saveDraw({relay: {assumeOpus: el.checked}}); return; }
     if (el.dataset.field === 'relay') return;
@@ -434,11 +437,15 @@ export function enginesApp(ctx) {
     const file = el.files?.[0];
     el.value = '';
     if (!file) return;
+    el.disabled = true;
     try {
       if (file.size > 300000) throw Error('工作流太大了（超过 300 KB）');
-      api.saveDraw({comfy: {workflow: await file.text()}});
-      render(); ctx.notify('已导入「' + file.name.replace(/\.json$/i, '') + '」');
-    } catch (error) { ctx.notify(error.message); }
+      const workflow = await file.text();
+      if (v.disposed) return;
+      const saved = api.saveComfyWorkflow({name: file.name.replace(/\.json$/i, '').trim().slice(0, 60) || '导入的工作流', workflow});
+      if (engine === 'comfy') render(); ctx.notify('已导入并切换到「' + saved.name + '」');
+    } catch (error) { ctx.notify(error.message, {error: true}); }
+    finally { if (el.isConnected) el.disabled = false; }
   });
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
@@ -529,8 +536,12 @@ export function enginesApp(ctx) {
       }
       case 'save-comfy-url': api.saveDraw({comfy: {url: v.root.querySelector('[data-field=comfy-url]').value}}); render(); ctx.notify('ComfyUI 地址已保存'); break;
       case 'comfy-test': await v.busy(el, loadComfy); break;
-      case 'save-comfy-wf': api.saveDraw({comfy: {workflow: v.root.querySelector('[data-field=comfy-workflow]').value}}); render(); ctx.notify(api.getState().draw.comfy.workflow ? '工作流已保存' : '工作流是空的，用默认工作流'); break;
-      case 'comfy-default-wf': if (await ctx.confirm('改回默认工作流？', '现在这份工作流会被清掉。')) { api.saveDraw({comfy: {workflow: ''}}); render(); } break;
+      case 'comfy-rename-wf': api.saveComfyWorkflow({id: api.getState().draw.comfy.activeWorkflow, name: v.root.querySelector('[data-field=comfy-name]').value}); render(); ctx.notify('工作流名称已保存'); break;
+      case 'comfy-delete-wf': {
+        const c = api.getState().draw.comfy, current = c.workflows.find(p => p.id === c.activeWorkflow);
+        if (await ctx.confirm('删除这套工作流？', `「${current.name}」和它的参数会从插件里删掉，改用默认工作流。ComfyUI 里的模型文件不受影响。`)) { api.deleteComfyWorkflow(current.id); render(); ctx.notify('已删除工作流'); }
+        break;
+      }
       case 'comfy-load-wf': await v.busy(el, async () => {
         const names = await api.comfyWorkflows();
         if (!names.length) { ctx.notify('酒馆里还没有存过工作流'); return; }
@@ -539,7 +550,12 @@ export function enginesApp(ctx) {
           const b = e.target.closest('[data-wf]');
           if (!b) return;
           d.close();
-          try { api.saveDraw({comfy: {workflow: await api.comfyWorkflow(b.dataset.wf)}}); render(); ctx.notify('已读入「' + b.dataset.wf.replace(/\.json$/i, '') + '」'); }
+          try {
+            const workflow = await api.comfyWorkflow(b.dataset.wf);
+            if (v.disposed) return;
+            const saved = api.saveComfyWorkflow({name: b.dataset.wf.replace(/\.json$/i, '').slice(0, 60), workflow});
+            if (engine === 'comfy') render(); ctx.notify('已导入并切换到「' + saved.name + '」');
+          }
           catch (error) { ctx.notify(error.message); }
         });
       }); break;
