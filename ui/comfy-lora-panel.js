@@ -23,18 +23,18 @@ export function comfyLoraPanel({ctx, api, root, rerender}) {
     const d = api.getComfyDraft(), nodes = d.loras.nodes, active = nodes.filter(n => !d.value.disabledLoras.includes(n.id));
     const current = nodes.map(n => tile({name: n.name, id: n.id, using: !d.value.disabledLoras.includes(n.id), note: n.reason ? '查看限制' : d.value.disabledLoras.includes(n.id) ? '已停用' : `强度 ${n.strength_model}`})).join('');
     const available = names.map(name => tile({name, installed: true, using: active.some(n => n.name === name), note: nodes.some(n => n.name === name) ? '已在方案中' : '点开添加'})).join('');
-    return `<details class="tool-fold" data-group="lora-tools"${nodes.length ? '' : ' open'}><summary>${icon('layers')}添加与管理<small>读取 · 添加 · 恢复</small></summary><div><div class="actions" style="margin-top:0">
-        ${btn('lora-refresh', loading ? '读取中…' : icon('refresh') + '读取 LoRA 列表', 'secondary', loading ? 'disabled' : '')}${btn('lora-manual', icon('add') + '手动添加', 'secondary')}${btn('lora-restore', '恢复工作流', 'text-button')}
-      </div></div></details>
-      ${error ? `<div class="comfy-note error-copy" role="status">读取失败，可手动添加 ${help(error)}</div>` : loading ? '<div class="comfy-note" role="status">正在读取 LoRA…</div>' : ''}
+    return `
       ${(names.length + nodes.length > 8 || query) ? `<div class="vibe-search">${icon('search')}<input type="search" data-lora-search value="${esc(query)}" placeholder="搜索 LoRA" aria-label="搜索 LoRA"></div>` : ''}
       ${groupTitle(`方案里的 LoRA · ${active.length}/${nodes.length} 启用`, help('亮框表示启用。点卡片打开单条详情，调整文件、强度或启停；移出不删除模型文件。修改先进入绘画草稿，试画满意后再保存方案。卡片使用统一图标，文件列表不提供封面图片。'))}
       ${d.loras.error ? `<p class="error-copy">${esc(d.loras.error)}</p>` : ''}
       <div class="vibe-grid vibe-scroll lora-grid" data-keep-scroll="lora-current">${current}</div>
       <p class="hint" data-lora-none="current"${nodes.some(n => matches(n.name)) ? ' hidden' : ''}>${nodes.length ? '没有匹配的 LoRA' : '还没有 LoRA，点下方卡片或手动添加。'}</p>
-      ${groupTitle(`可用 LoRA${loaded ? ` · ${names.length}` : ''}`, help('从当前 ComfyUI 读取已安装的文件名，不下载模型。列表连接方式在引擎页设置；也可在单张卡片的「文件列表与连接」里调整。'))}
+      ${groupTitle(`可用 LoRA${loaded ? ` · ${names.length}` : ''}`, `<span class="title-tools">${btn('lora-refresh', loading ? '读取中…' : icon('refresh') + (loaded ? '刷新' : '读取'), 'text-button', loading ? 'disabled' : '')}${help('从当前 ComfyUI 读取已安装的文件名，不下载模型。列表连接方式在引擎页设置；也可在单张卡片的「文件列表与连接」里调整。')}</span>`)}
+      ${error ? `<div class="comfy-note error-copy" role="status">读取失败，可手动添加 ${help(error)}</div>` : loading ? '<div class="comfy-note" role="status">正在读取 LoRA…</div>' : ''}
       <div class="vibe-grid vibe-scroll lora-grid" data-keep-scroll="lora-catalog">${available}</div>
-      <p class="hint" data-lora-none="catalog"${names.some(matches) ? ' hidden' : ''}>${!loaded ? '读取列表后，点卡片添加。' : names.length ? '没有匹配的 LoRA' : 'ComfyUI 里还没有 LoRA 文件。'}</p>`;
+      <p class="hint" data-lora-none="catalog"${names.some(matches) ? ' hidden' : ''}>${!loaded ? '读取列表后，点卡片添加。' : names.length ? '没有匹配的 LoRA' : 'ComfyUI 里还没有 LoRA 文件。'}</p>
+      <div class="actions">${btn('lora-manual', icon('add') + '手动添加', 'secondary')}</div>
+      <details class="tool-fold" data-group="lora-tools"><summary>${icon('layers')}更多操作</summary><div>${btn('lora-restore', '恢复原始工作流', 'text-button')}</div></details>`;
   }
   function search(value) {
     query = value;

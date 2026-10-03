@@ -1274,7 +1274,6 @@ small.peek-draw{cursor:default;color:var(--ink2)}
 :root[data-theme=dark] .deco-price{color:#ffd88a;background:#4a3a1c}
 /* Drawing scheme controls reuse the phone's theme and compact cards. */
 .comfy-plan .row-heading{justify-content:space-between;margin-bottom:8px}
-.view[data-engine=comfy] .canvas-main.empty{height:min(23dvh,180px);min-height:100px}
 .comfy-plan .row-heading strong{display:flex;align-items:center;gap:4px}
 .comfy-plan>.select{display:block}
 .comfy-plan-actions{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
@@ -1285,6 +1284,7 @@ small.peek-draw{cursor:default;color:var(--ink2)}
 .comfy-note.error-copy{color:var(--danger)}
 .comfy-strengths{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .comfy-strengths:empty{display:none}
+.lora-strengths .field[hidden]{display:none}
 .comfy-lora-name{min-width:0;overflow-wrap:anywhere}
 .comfy-lora-name .info{display:inline-flex;margin-left:5px}
 .comfy-advanced summary{font-size:12px;color:var(--ink2);cursor:pointer;padding:8px 0}

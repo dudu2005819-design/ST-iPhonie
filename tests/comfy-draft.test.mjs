@@ -106,7 +106,7 @@ test('real phone sheets apply LoRAs to a draft, preserve unsaved work on failed 
     await click('.sheet [data-help]'); assert.ok(q('.sheet-help')); assert.ok(q('[data-action=lora-add]'), 'help keeps editor open');
     set('[data-field=lora-new-file]', 'test.safetensors'); await click('[data-action=lora-add]');
     assert.equal(f.api.getComfyDraft().dirty, true); assert.equal(f.api.getState().draw.comfy.workflow, '');
-    await click('[data-comfy-jump]'); set('[data-field=comfy-model]', 'model.safetensors', 'change'); await tick();
+    await click('[data-tab=params]'); set('[data-field=comfy-model]', 'model.safetensors', 'change'); await tick();
     app.open('engines'); app.open('draw'); await tick(); assert.equal(f.api.getComfyDraft().value.model, 'model.safetensors');
     await click('[data-tab=lora]');
     await click('[data-action=comfy-manage]');
@@ -148,7 +148,8 @@ test('LoRA gallery shares the Vibe tab position and edits one card without chang
     assert.equal(doc.querySelector('.comfy-plan'), null, 'prompt tab keeps the shared drawing layout');
     await click('[data-tab=lora]'); assert.equal(cards().length, 2);
     assert.ok(q('.draw-tabs').compareDocumentPosition(q('.comfy-plan')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'scheme controls belong below the tabs');
-    await click('[data-comfy-jump]'); assert.equal(doc.querySelector('.comfy-plan'), null, 'parameters do not repeat scheme controls');
+    assert.equal(q('.comfy-plan').querySelector('[data-tab=params]'), null, 'no duplicate parameter shortcut');
+    await click('[data-tab=params]'); assert.equal(doc.querySelector('.comfy-plan'), null, 'parameters do not repeat scheme controls');
     await click('[data-tab=lora]');
     await click(`[data-action=lora-open][data-id="${firstId}"]`);
     assert.equal(doc.querySelectorAll('.sheet [data-lora-id]').length, 1);
@@ -156,6 +157,8 @@ test('LoRA gallery shares the Vibe tab position and edits one card without chang
     assert.equal(f.api.getComfyDraft().dirty, false);
     await click(`[data-action=lora-open][data-id="${firstId}"]`);
     set('[data-field=lora-model-strength]', '.55'); q('[data-lora-enabled]').checked = false;
+    assert.equal(q('[data-field=lora-model-strength]').type, 'range');
+    assert.equal(q('[data-field=lora-model-strength]').closest('.field').querySelector('output').textContent, '.55');
     await click('.sheet [data-help]'); assert.ok(q('.sheet-help'));
     await click('[data-action=lora-apply]');
     const d = f.api.getComfyDraft(); assert.equal(d.loras.nodes[0].strength_model, .55);
@@ -168,6 +171,7 @@ test('LoRA gallery shares the Vibe tab position and edits one card without chang
     assert.equal(doc.querySelectorAll('[data-action=lora-catalog-open]:not([hidden])').length, 1);
     await click('[data-action=lora-catalog-open]:not([hidden])');
     assert.equal(q('[data-field=lora-new-file]').value, 'character-alice.safetensors');
+    assert.equal(q('[data-action=lora-add]').disabled, true, 'select a connection before adding');
     set('[data-field=lora-source]', d.loras.nodes[1].id); await click('[data-action=lora-add]');
     const added = f.api.getComfyDraft().loras.nodes.find(n => n.name === 'character-alice.safetensors'); assert.ok(added);
     await click(`[data-action=lora-open][data-id="${added.id}"]`); await click('[data-action=lora-remove]');

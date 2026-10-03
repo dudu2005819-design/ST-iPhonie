@@ -255,7 +255,7 @@ export function drawApp(ctx) {
     if (el.dataset.action?.startsWith('vibe-') && await vibes.click(el)) return;
     const index = Number(el.dataset.index);
     switch (el.dataset.action) {
-      case 'tab': tab = el.dataset.tab; await render(); if (el.hasAttribute('data-comfy-jump') && !v.disposed) { const tabs = v.root.querySelector('.draw-tabs'); v.root.scrollTop = tabs.offsetTop - v.root.offsetTop - 10; } break;
+      case 'tab': tab = el.dataset.tab; await render(); break;
       case 'draw-engine': api.saveDraw({engine: el.dataset.pick}); styleDraft = null; render(); refreshSubscription(); break;
       case 'gpt-quality': api.saveDraw({gpt: {quality: el.dataset.value}}); render(); break;
       case 'gpt-orientation': api.saveDraw({gpt: {orientation: el.dataset.value}}); render(); break;

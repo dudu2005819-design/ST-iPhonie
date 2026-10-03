@@ -1,10 +1,10 @@
 {
-  "checkedAt": "2026-10-03T14:36:35.027Z",
+  "checkedAt": "2026-10-03T14:57:55.882Z",
   "node": "v24.14.0",
   "fullSuite": {
     "command": "node --test --test-concurrency=1 --test-reporter=tap tests/core.test.mjs tests/role-persistence.test.mjs tests/dialogue-presentation.test.mjs tests/library.test.mjs tests/player-backend.test.mjs tests/provider-contract.test.mjs tests/backend.test.mjs tests/draw.test.mjs tests/queue.test.mjs tests/plan.test.mjs tests/chat.test.mjs tests/phone-ui.test.mjs tests/download.test.mjs tests/diagnostics.test.mjs tests/moments.test.mjs tests/call.test.mjs tests/llm.test.mjs tests/sync.test.mjs tests/compat.test.mjs tests/mimo.test.mjs tests/vibes.test.mjs tests/keystore.test.mjs tests/lore.test.mjs tests/stream.test.mjs tests/lan.test.mjs tests/apps.test.mjs tests/idb.test.mjs tests/image-engines.test.mjs tests/image-connections.test.mjs tests/comfy-workflows.test.mjs tests/comfy-loras.test.mjs tests/comfy-draft.test.mjs tests/wallet.test.mjs",
-    "count": 306,
-    "passed": 306,
+    "count": 307,
+    "passed": 307,
     "failed": 0,
     "skipped": 0,
     "exitCode": 0,
@@ -18,8 +18,8 @@
   },
   "branchSuite": {
     "command": "npm test --prefix tests",
-    "count": 29,
-    "passed": 29,
+    "count": 30,
+    "passed": 30,
     "failed": 0
   },
   "manifest": {
@@ -287,15 +287,15 @@
     },
     {
       "path": "ui/comfy-lora-panel.js",
-      "sha256": "d244da829e333a2b271c1f3d6125d45abc8ace90599f77643a1f3ecd2465bfa5"
+      "sha256": "6742712ac4dd74b3607fceee2e760a12cfd0463f2121ac212fa3d84a6adbcfb5"
     },
     {
       "path": "ui/comfy-loras.js",
-      "sha256": "ce83af0bdaa79e1190dc82101e29c3898d886f3c4cb6ba2a0f24cd72cb431e91"
+      "sha256": "8ed2f568d006a3ed8362fe4bccbff080dcc68a0551f25110cd87dc9cf49f9431"
     },
     {
       "path": "ui/comfy-plans.js",
-      "sha256": "da9297a63429724d16a18d42f39827e1a5f675934cd70631c88d824295b0a44a"
+      "sha256": "50a3d19faa7f1f4e058fa7e3bbc98c3cef25e00e12b04b89b3a4247fa50c73b2"
     },
     {
       "path": "ui/common.js",
@@ -303,7 +303,7 @@
     },
     {
       "path": "ui/draw.js",
-      "sha256": "474cc98cce59c7dc12b6a44c4f41841904f79e585b20d04cb50f3608bab40995"
+      "sha256": "8aa095862a444bb266b01913ca31b5c65dbc26507ecd3b673ace1870809ca9ef"
     },
     {
       "path": "ui/engines.js",
@@ -343,7 +343,7 @@
     },
     {
       "path": "ui/phone.css",
-      "sha256": "b1dc42274095cae90a7b8c1f11261c957a32878f95800df0a6ca8ea3020499be"
+      "sha256": "514ec9c5a2dacdf43bec97be3e3b5c0e87d6af2dd4a28943b48cd6353479ccc7"
     },
     {
       "path": "ui/phone.js",
@@ -375,7 +375,7 @@
     },
     {
       "path": "使用说明.md",
-      "sha256": "4608d460daf16b89d2f005447f9e4eedd8afeeb5692703ff836773aec7110208"
+      "sha256": "a003b77a84fb2bc99b09f4c1e3194ac5e41ec05fa0a6aa9fed5fc7ef07f2b85b"
     }
   ],
   "loraCapability": {
@@ -403,6 +403,7 @@
     "failure": "Read sky instead of aero after deleting photo; unrelated wallpaper implementation unchanged",
     "isolatedRetest": "passed",
     "fullRetest": "passed 306/306 before and after final scheme placement change",
-    "logInMaintenanceWorkspace": "tests/comfy-lora-gallery-first-run.tap"
+    "logInMaintenanceWorkspace": "tests/comfy-lora-gallery-first-run.tap",
+    "round": 116
   }
 }

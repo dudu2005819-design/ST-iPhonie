@@ -21,12 +21,12 @@ async function fixture({state = freshState(), persist = () => {}} = {}) {
     imageFetch: async (url, init) => { calls.push({url, body: JSON.parse(init.body)}); return Response.json({format: 'png', data: PNG}); }});
   await backend.initialize(); return {api: backend.api(), backend, calls};
 }
-function editor(f, overrides = {}) {
+function editor(f, overrides = {}, options = {}) {
   const dom = new JSDOM('<!doctype html><body></body>'), notices = [], callbacks = [];
   const d = {body: dom.window.document.body, live: true, onClose(fn) { callbacks.push(fn); }, close(v) { if (!this.live) return; this.live = false; callbacks.forEach(fn => fn(v)); }};
-  editComfyLoras({api: {...f.api, ...overrides}, doc: dom.window.document, win: dom.window, dialog: () => d, notify: s => notices.push(s)});
+  editComfyLoras({api: {...f.api, ...overrides}, doc: dom.window.document, win: dom.window, dialog: () => d, notify: s => notices.push(s)}, () => {}, options);
   const q = s => { const el = d.body.querySelector(s); assert.ok(el, s); return el; };
-  const set = (field, value) => { q(`[data-field=${field}]`).value = value; };
+  const set = (field, value) => { const el = q(`[data-field=${field}]`); el.value = value; el.dispatchEvent(new dom.window.Event('input', {bubbles: true})); };
   const click = async action => { q(`[data-action=${action}]`).click(); await tick(); };
   return {dom, d, q, set, click, notices, close() { d.close(); dom.window.close(); }};
 }
@@ -131,5 +131,41 @@ test('catalogue replies preserve unsaved form input, old transport replies are i
     reply(['old-result']); await tick(); assert.equal(e.d.body.querySelector('datalist option'), null);
     await e.click('lora-read'); e.close(); assert.equal(signal.aborted, true); reply(['late']); await tick();
     assert.equal(f.api.getState().draw.comfy.workflow, workflow, 'closing discards edits');
+  } finally { e?.close(); await f.backend.close(); }
+});
+
+test('focused sliders preserve exact imported strengths until moved and hide inapplicable CLIP controls', async () => {
+  const f = await fixture(); let e;
+  try {
+    let workflow = add(BASE, 'precise.safetensors');
+    const id = inspectLoras(workflow).nodes[0].id;
+    workflow = editLoras(workflow, {updates: [{id, strength_model: 7.123, strength_clip: -.333}]});
+    f.api.saveComfyWorkflow({name: 'precise', workflow});
+    e = editor(f, {}, {draft: true, nodeId: id});
+    const slider = e.q('[data-field=lora-model-strength]');
+    assert.equal(slider.type, 'range'); assert.ok(Number(slider.max) >= 7.123);
+    // Browsers round a range thumb to its step before any input event.
+    slider.value = '7.1'; await e.click('lora-apply'); e.close();
+    assert.equal(f.api.getComfyDraft().loras.nodes[0].strength_model, 7.123);
+    assert.equal(f.api.getComfyDraft().loras.nodes[0].strength_clip, -.333);
+    e = editor(f, {}, {draft: true, nodeId: id}); e.set('lora-clip-strength', '-.5');
+    assert.equal(e.q('[data-field=lora-clip-strength]').closest('.field').querySelector('output').textContent, '-.5');
+    await e.click('lora-apply'); e.close();
+    assert.equal(f.api.getComfyDraft().loras.nodes[0].strength_clip, -.5);
+    assert.equal(inspectLoras(f.api.getState().draw.comfy.workflow).nodes[0].strength_clip, -.333);
+    const graph = JSON.parse(BASE);
+    graph['4'] = {class_type: 'UNETLoader', inputs: {unet_name: 'flux.safetensors'}};
+    graph['10'] = {class_type: 'CLIPLoader', inputs: {clip_name: 'clip.safetensors'}};
+    graph['6'].inputs.clip = graph['7'].inputs.clip = ['10', 0];
+    graph['20'] = {class_type: 'CheckpointLoaderSimple', inputs: {ckpt_name: 'other.safetensors'}};
+    graph['21'] = {class_type: 'OtherModelConsumer', inputs: {model: ['20', 0]}};
+    f.api.saveComfyWorkflow({name: 'mixed', workflow: JSON.stringify(graph)}); f.api.resetComfyDraft();
+    e = editor(f, {}, {draft: true, addFile: 'flux-lora.safetensors'});
+    assert.equal(e.q('[data-action=lora-add]').disabled, true);
+    e.set('lora-source', '20'); assert.equal(e.q('[data-field=lora-new-clip]').closest('.field').hidden, false);
+    e.set('lora-source', '4'); assert.equal(e.q('[data-field=lora-new-clip]').closest('.field').hidden, true);
+    assert.equal(e.q('[data-action=lora-add]').disabled, false);
+    await e.click('lora-add');
+    const node = f.api.getComfyDraft().loras.nodes[0]; assert.equal(node.modelOnly, true); assert.equal(node.strength_clip, undefined);
   } finally { e?.close(); await f.backend.close(); }
 });
