@@ -102,12 +102,13 @@ test('real phone sheets apply LoRAs to a draft, preserve unsaved work on failed 
   const set = (s, value, type = 'input') => { const el = q(s); el.value = value; el.dispatchEvent(new w.Event(type, {bubbles: true})); };
   try {
     await app.ready; app.open('draw'); await tick();
-    await click('[data-action=comfy-loras]');
+    await click('[data-tab=lora]'); await click('[data-action=lora-manual]');
     await click('.sheet [data-help]'); assert.ok(q('.sheet-help')); assert.ok(q('[data-action=lora-add]'), 'help keeps editor open');
-    set('[data-field=lora-new-file]', 'test.safetensors'); await click('[data-action=lora-add]'); await click('[data-action=lora-apply]');
+    set('[data-field=lora-new-file]', 'test.safetensors'); await click('[data-action=lora-add]');
     assert.equal(f.api.getComfyDraft().dirty, true); assert.equal(f.api.getState().draw.comfy.workflow, '');
     await click('[data-comfy-jump]'); set('[data-field=comfy-model]', 'model.safetensors', 'change'); await tick();
     app.open('engines'); app.open('draw'); await tick(); assert.equal(f.api.getComfyDraft().value.model, 'model.safetensors');
+    await click('[data-tab=lora]');
     await click('[data-action=comfy-manage]');
     const bad = new Blob(['bad JSON']); Object.defineProperty(bad, 'name', {value:'bad.json'});
     Object.defineProperty(q('[data-comfy-file]'), 'files', {value:[bad], configurable:true}); q('[data-comfy-file]').dispatchEvent(new w.Event('change', {bubbles:true})); await tick();
@@ -121,4 +122,84 @@ test('real phone sheets apply LoRAs to a draft, preserve unsaved work on failed 
     await click('[data-action=comfy-delete-wf]'); await click('[data-decision=yes]');
     assert.equal(f.api.getState().draw.comfy.activeWorkflow, 'default');
   } finally { app.dispose(); dom.window.close(); await f.backend.close(); }
+});
+
+test('LoRA gallery shares the Vibe tab position and edits one card without changing its neighbours or saved plan', async () => {
+  const {JSDOM} = require(existsSync(new URL('./node-dom/node_modules/jsdom', import.meta.url)) ? './node-dom/node_modules/jsdom' : 'jsdom');
+  const {createPhoneApp} = await import(new URL('ui/phone.js', source));
+  const f = await fixture(), dom = new JSDOM('<div id="root"></div>', {url: 'https://test.invalid', pretendToBeVisual: true});
+  const w = dom.window, doc = w.document, tick = () => new Promise(r => setTimeout(r, 10));
+  w.matchMedia = () => ({matches: false, addEventListener() {}, removeEventListener() {}});
+  w.requestAnimationFrame = () => 0; w.cancelAnimationFrame = () => {};
+  let workflow = editLoras(BASE, {add: {source: '4', lora_name: 'folder/watercolor.safetensors', strength_model: .7, strength_clip: .8}});
+  const firstId = inspectLoras(workflow).nodes[0].id;
+  workflow = editLoras(workflow, {add: {source: firstId, lora_name: 'soft-light.safetensors', strength_model: .4, strength_clip: .5}});
+  const plan = f.api.saveComfyWorkflow({name: 'gallery', workflow});
+  const catalogue = ['folder/watercolor.safetensors', 'soft-light.safetensors', 'character-alice.safetensors', ...Array.from({length: 8}, (_, i) => `other-${i}.safetensors`)];
+  const app = createPhoneApp({window: w, api: {...f.api, comfyLoras: async () => catalogue, latest: () => null, takeDraw: () => null, close() {}}});
+  const q = s => { const el = doc.querySelector(s); assert.ok(el, s); return el; };
+  const click = async s => { q(s).click(); await tick(); };
+  const set = (s, value) => { const el = q(s); el.value = value; el.dispatchEvent(new w.Event('input', {bubbles: true})); };
+  const cards = () => [...doc.querySelectorAll('[data-action=lora-open]')];
+  try {
+    await app.ready; app.open('draw'); await tick();
+    assert.deepEqual([...doc.querySelectorAll('.draw-tabs [data-tab]')].map(b => b.dataset.tab), ['prompt', 'chars', 'params', 'lora', 'chat']);
+    assert.equal(doc.querySelector('[data-action=comfy-loras]'), null);
+    assert.equal(doc.querySelector('.comfy-plan'), null, 'prompt tab keeps the shared drawing layout');
+    await click('[data-tab=lora]'); assert.equal(cards().length, 2);
+    assert.ok(q('.draw-tabs').compareDocumentPosition(q('.comfy-plan')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'scheme controls belong below the tabs');
+    await click('[data-comfy-jump]'); assert.equal(doc.querySelector('.comfy-plan'), null, 'parameters do not repeat scheme controls');
+    await click('[data-tab=lora]');
+    await click(`[data-action=lora-open][data-id="${firstId}"]`);
+    assert.equal(doc.querySelectorAll('.sheet [data-lora-id]').length, 1);
+    set('[data-field=lora-model-strength]', '.25'); await click('[data-action=lora-cancel]');
+    assert.equal(f.api.getComfyDraft().dirty, false);
+    await click(`[data-action=lora-open][data-id="${firstId}"]`);
+    set('[data-field=lora-model-strength]', '.55'); q('[data-lora-enabled]').checked = false;
+    await click('.sheet [data-help]'); assert.ok(q('.sheet-help'));
+    await click('[data-action=lora-apply]');
+    const d = f.api.getComfyDraft(); assert.equal(d.loras.nodes[0].strength_model, .55);
+    assert.deepEqual(d.loras.nodes[1], inspectLoras(workflow).nodes[1]);
+    assert.deepEqual(d.value.disabledLoras, [firstId]); assert.equal(cards()[0].classList.contains('using'), false);
+    assert.equal(f.api.getState().draw.comfy.workflow, plan.workflow);
+    await click('[data-action=lora-refresh]');
+    assert.equal(doc.querySelectorAll('[data-action=lora-catalog-open]').length, catalogue.length);
+    set('[data-lora-search]', 'alice'); assert.equal(cards().filter(c => !c.hidden).length, 0);
+    assert.equal(doc.querySelectorAll('[data-action=lora-catalog-open]:not([hidden])').length, 1);
+    await click('[data-action=lora-catalog-open]:not([hidden])');
+    assert.equal(q('[data-field=lora-new-file]').value, 'character-alice.safetensors');
+    set('[data-field=lora-source]', d.loras.nodes[1].id); await click('[data-action=lora-add]');
+    const added = f.api.getComfyDraft().loras.nodes.find(n => n.name === 'character-alice.safetensors'); assert.ok(added);
+    await click(`[data-action=lora-open][data-id="${added.id}"]`); await click('[data-action=lora-remove]');
+    assert.equal(f.api.getComfyDraft().loras.nodes.length, 3, 'first click only asks for confirmation');
+    await click('[data-action=lora-remove]'); assert.equal(f.api.getComfyDraft().loras.nodes.length, 2);
+    set('[data-lora-search]', '');
+    await click(`[data-action=lora-open][data-id="${firstId}"]`); set('[data-field=lora-model-strength]', '.9');
+    f.api.updateComfyDraft({params: {steps: 45}}); await click('[data-action=lora-apply]');
+    assert.ok(q('.sheet [data-action=lora-apply]'), 'stale apply keeps editor open');
+    assert.equal(f.api.getComfyDraft().loras.nodes[0].strength_model, .55); assert.equal(f.api.getComfyDraft().value.steps, 45);
+    await click('[data-action=lora-cancel]');
+    await click('[data-action=draw-engine][data-pick=nai]'); assert.ok(q('[data-tab=vibe][aria-pressed=true]'));
+    await click('[data-action=draw-engine][data-pick=comfy]'); assert.ok(q('[data-tab=lora][aria-pressed=true]'));
+    await click('[data-action=draw-engine][data-pick=gpt]'); assert.ok(q('[data-tab=prompt][aria-pressed=true]'));
+  } finally { app.dispose(); dom.window.close(); await f.backend.close(); }
+});
+
+test('LoRA gallery discards old catalogues after connection changes and aborts requests on close', async () => {
+  const {comfyLoraPanel} = await import(new URL('ui/comfy-lora-panel.js', source));
+  const f = await fixture(), requests = []; let renders = 0;
+  const panel = comfyLoraPanel({ctx: {}, api: {...f.api, comfyLoras: ({signal}) => new Promise(resolve => requests.push({resolve, signal}))}, root: () => null, rerender: () => { renders++; }});
+  try {
+    const first = panel.click({dataset: {action: 'lora-refresh'}});
+    f.api.saveDraw({comfy: {url: 'http://new-comfy.invalid:8188'}}); panel.html();
+    assert.equal(requests[0].signal.aborted, true);
+    requests[0].resolve(['old-server.safetensors']); await first;
+    assert.equal(panel.html().includes('old-server.safetensors'), false);
+    const second = panel.click({dataset: {action: 'lora-refresh'}});
+    requests[1].resolve(['new-server.safetensors']); await second;
+    assert.ok(panel.html().includes('new-server.safetensors'));
+    const third = panel.click({dataset: {action: 'lora-refresh'}}); panel.dispose(); const before = renders;
+    assert.equal(requests[2].signal.aborted, true); requests[2].resolve(['late.safetensors']); await third;
+    assert.equal(renders, before);
+  } finally { panel.dispose(); await f.backend.close(); }
 });

@@ -160,6 +160,7 @@ test('drawing app imports, renames, switches and deletes schemes; engine page on
   };
   try {
     assert.equal(view.root.querySelector('textarea[data-field=comfy-workflow]'), null);
+    q('[data-tab=lora]').click(); await tick();
     await pick('bad.json', '{"nodes":[],"links":[]}');
     assert.equal(f.api.getState().draw.comfy.workflows.length, 1); assert.match(notices.at(-1), /导出/);
     await pick('角色.json', workflow('a')); const a = f.api.getState().draw.comfy.activeWorkflow;

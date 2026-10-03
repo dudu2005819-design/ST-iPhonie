@@ -4,6 +4,7 @@ import {openImageViewer} from '../image-viewer.js';
 import {downloadAction} from '../download.js';
 import {vibePanel} from './vibes.js';
 import {comfyPlans} from './comfy-plans.js';
+import {comfyLoraPanel} from './comfy-lora-panel.js';
 
 const SIZES = [['portrait', '竖图', 832, 1216], ['landscape', '横图', 1216, 832], ['square', '方图', 1024, 1024], ['tall', '大竖图', 1024, 1536]];
 /** Pictures kept in the column beside the canvas (this visit of the app; all of them are also in the album). */
@@ -18,6 +19,7 @@ export function drawApp(ctx) {
   let comfyInfo = null, comfyRequest = 0, comfyAddress = '';
   const plans = comfyPlans(ctx, v, () => render());
   const vibes = vibePanel({ctx, api, root: () => v.root, rerender: () => render()});
+  const loras = comfyLoraPanel({ctx, api, root: () => v.root, rerender: () => render()});
   let queue = api.drawQueue?.() || [], cloudError = api.cloudQueueError?.() || '', cloudNote = null;
   const jobState = j => j.state === 'running' ? '正在画' : j.state === 'busy' ? `账号正忙，稍后重试（第 ${j.attempt} 次）` : j.state === 'spacing' ? '马上开始'
     : j.state === 'remote' ? (j.cloud?.position > 0 ? `云端排队，前面 ${j.cloud.position} 位` : j.cloud?.cooldown > 5000 ? `大家一起等 ${Math.ceil(j.cloud.cooldown / 1000)} 秒` : '云端马上轮到') : `第 ${j.position + 1} 位`;
@@ -61,13 +63,13 @@ export function drawApp(ctx) {
     const ticket = ++epoch, d = state(), e = d.engine, s = styleDraft || style(), q = quote(), p = q.params, keyed = api.drawReady();
     const comfy = e === 'comfy' ? api.getComfyDraft() : null;
     if (comfyAddress !== d.comfy.url) { comfyAddress = d.comfy.url; comfyInfo = null; comfyRequest++; }
-    if (e !== 'nai' && tab === 'vibe') tab = 'prompt';
+    if (tab === 'vibe' || tab === 'lora') tab = e === 'nai' ? 'vibe' : e === 'comfy' ? 'lora' : 'prompt';
     const shown = results[current];
     const main = shown ? await urlFor(shown.photoId) : '';
     const thumbs = await Promise.all(results.map(r => urlFor(r.photoId)));
     if (v.disposed || ticket !== epoch) return;
     const size = SIZES.find(([, , w, h]) => w === d.params.width && h === d.params.height)?.[0] || 'custom';
-    const tabs = [['prompt', '提示词'], ['chars', '角色'], ['params', '参数'], ...(e === 'nai' ? [['vibe', 'Vibe']] : []), ['chat', '正文出图']];
+    const tabs = [['prompt', '提示词'], ['chars', '角色'], ['params', '参数'], ...(e === 'nai' ? [['vibe', 'Vibe']] : e === 'comfy' ? [['lora', 'LoRA']] : []), ['chat', '正文出图']];
     v.root.dataset.engine = e;
     let body = '';
     if (tab === 'prompt') body = `
@@ -109,6 +111,7 @@ export function drawApp(ctx) {
         ${cloudNote ? `<p class="hint${cloudNote.ok ? '' : ' error-copy'}" style="padding:0">${esc(cloudNote.text)}</p>` : ''}
       </div>`;
     if (tab === 'vibe') body = vibes.html();
+    if (tab === 'lora') body = plans.summary() + loras.html();
     if (tab === 'chat') body = `
       ${d.enabled ? '' : `<div class="banner">${icon('image')}<span>正文出图没有开启，在「设置 · 绘图」里打开。</span>${btn('go-settings', '去打开', 'chip-button')}</div>`}<div class="group">${toggle('auto', '新回复自动出图', d.auto, '只自动画不花钱的：NovelAI 免费档内的图、ComfyUI 的图；GPT 生图在「每张先问」关掉后也会自动画。其余的正文里会显示“点击生成”。')}${toggle('fold', '正文图片默认收起', d.fold, '收起后正文里只留一个小缩略图，点开再看，手机上不占地方。每张图也可以单独收起或展开。')}</div>
       <div class="field"><span>配图方式${help('单独配图：正文模型只管写故事；回复写完后，插件用同一个模型再单独请求一次，读这条回复、挑画面、写出图块，再把图插到对应的段落后面。出图规则不会挤占正文，张数和格式更稳，每条回复多一次请求。\n\n正文里顺手写：把出图规则加进正文请求，模型写故事时顺手写出图块。只要一次请求，但规则较长，偶尔会影响正文或漏写。')}</span><div class="segmented" style="margin:0">${[['separate', '回复后单独配图'], ['inline', '正文里顺手写']].map(([k, l]) => `<button data-action="mode" data-mode="${k}" aria-pressed="${d.mode === k}">${l}</button>`).join('')}</div></div>
@@ -121,7 +124,6 @@ export function drawApp(ctx) {
       + `<div class="segmented draw-engines" role="group" aria-label="用哪个画">${api.drawCatalog.engines.map(k => `<button data-action="draw-engine" data-pick="${k}" aria-pressed="${k === e}">${esc(engineName(k))}</button>`).join('')}</div>`
       + (keyed ? '' : `<div class="banner">${icon('key')}<span>${esc(api.drawMissing())}。</span>${btn('go-key', '去填写', 'chip-button')}</div>`)
       + queueCard()
-      + (comfy ? plans.summary() : '')
       + `<div class="draw-meta">${btn('pick-style', icon('layers') + esc(style().name) + icon('down'), 'chip-button')}${costChip(q)}</div>
         <div class="canvas-card"><div class="canvas-main${main ? '' : ' empty'}" style="aspect-ratio:${p.width}/${p.height}">${main ? `<button type="button" class="canvas-zoom" data-action="zoom" aria-label="放大查看"><img src="${esc(main)}" alt="生成的图片"></button>` : `<span>${comfy && !(comfy.controls.includes('width') && comfy.controls.includes('height')) ? '尺寸由工作流决定' : `${p.width} × ${p.height}`}<br>还没有图</span>`}${busy ? `<span class="canvas-busy">${esc(engineName(e))} 正在画……</span>` : ''}</div>
           ${results.length ? `<div class="canvas-side" data-keep-scroll="results">${thumbs.map((url, i) => `<button class="thumb" data-action="thumb" data-index="${i}" aria-pressed="${i === current}" aria-label="第 ${i + 1} 张">${url ? `<img src="${esc(url)}" alt="">` : ''}</button>`).join('')}</div>` : ''}</div>
@@ -204,7 +206,7 @@ export function drawApp(ctx) {
     if (event.subscription || event.queue || event.vibes && tab === 'vibe') render();
   };
   const dispose = v.dispose;
-  v.dispose = () => { epoch++; comfyRequest++; plans.dispose(); for (const url of urls.values()) ctx.win.URL.revokeObjectURL(url); urls.clear(); dispose(); };
+  v.dispose = () => { epoch++; comfyRequest++; plans.dispose(); loras.dispose(); for (const url of urls.values()) ctx.win.URL.revokeObjectURL(url); urls.clear(); dispose(); };
 
   v.on('input', '[data-field]', el => {
     const key = el.dataset.field;
@@ -245,9 +247,11 @@ export function drawApp(ctx) {
     render();
   });
   v.on('input', '[data-vibe-search]', el => vibes.search(el.value));
+  v.on('input', '[data-lora-search]', el => loras.search(el.value));
   v.on('change', '[data-vibe-file]', async el => { const files = [...el.files]; el.value = ''; await vibes.importFiles(files); });
   v.on('click', '[data-action]', async el => {
     if (eng() === 'comfy' && await plans.click(el)) return;
+    if (eng() === 'comfy' && await loras.click(el)) return;
     if (el.dataset.action?.startsWith('vibe-') && await vibes.click(el)) return;
     const index = Number(el.dataset.index);
     switch (el.dataset.action) {

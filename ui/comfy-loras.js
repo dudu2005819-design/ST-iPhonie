@@ -1,22 +1,49 @@
 import {esc, btn, field, input, select, groupTitle, help} from './common.js';
 import {inspectLoras, editLoras, activeLoraWorkflow} from '../core/comfy-loras.js';
 import {COMFY_PARAM_KEYS} from '../core/image-engines.js';
+import {icon} from './icons.js';
 
-/** An isolated editor draft: closing discards it; only Save writes to the backend. */
-export function editComfyLoras(ctx, onSaved = () => {}, {draft = false} = {}) {
+/** Closing discards local edits; focused cards apply to the drawing draft before the plan is saved. */
+export function editComfyLoras(ctx, onSaved = () => {}, {draft = false, nodeId = null, addFile = null, catalog = []} = {}) {
   const {api} = ctx, c = api.getState().draw.comfy;
   const working = draft ? api.getComfyDraft() : null;
   const initial = working ? working.value : c.workflows.find(p => p.id === c.activeWorkflow);
   let workflow = initial.workflow || api.drawCatalog.comfyWorkflow, disabled = [...initial.disabledLoras];
   const sourceWorkflow = initial.sourceWorkflow || (working ? working.base.workflow || api.drawCatalog.comfyWorkflow : workflow);
   let name = initial.id === 'default' ? '我的 LoRA 方案' : initial.name, transport = c.loraTransport;
-  let names = [], listMessage = '', listDetail = '', loading = false, request = 0, resetArmed = false;
+  const focused = draft && (nodeId !== null || addFile !== null);
+  let names = [...catalog], listMessage = '', listDetail = '', loading = false, request = 0, resetArmed = false, removeArmed = false;
   const controller = new AbortController(), listId = 'comfy-loras-' + crypto.randomUUID();
-  const d = ctx.dialog('LoRA', '');
+  const d = ctx.dialog(focused ? nodeId !== null ? 'LoRA 详情' : '添加 LoRA' : 'LoRA', '');
   d.body.dataset.engine = 'comfy';
   const q = selector => d.body.querySelector(selector);
   const attribute = `list="${listId}" autocomplete="off" spellcheck="false" placeholder="文件名.safetensors（可含子目录）"`;
   const number = (key, value, attrs = '') => input(key, value, 'number', `min="-100" max="100" step="0.05" ${attrs}`);
+  function apply() { api.updateComfyDraft({workflow, disabledLoras: disabled}, initial); d.close(true); onSaved(); }
+  function renderFocused(info) {
+    const row = nodeId !== null ? info.nodes.find(n => n.id === nodeId) : null;
+    if (nodeId !== null && !row) throw Error('这条 LoRA 已经不在了，请重新打开');
+    const file = row?.name || addFile || '新的 LoRA';
+    d.body.innerHTML = `<div class="vibe-detail lora-detail"><span class="vibe-blank lora-art">${icon('layers')}<b>LoRA</b></span><strong>${esc(file)}</strong></div>
+      ${row ? `<div class="group pad" data-lora-id="${esc(row.id)}">
+        <div class="setting-row"><span>使用这条 LoRA ${help('关闭后试画会跳过这一条，文件名和强度仍保留。应用到草稿后，保存方案才会写入已保存配置。')}</span><input type="checkbox" class="switch" data-lora-enabled aria-label="启用 LoRA" ${disabled.includes(row.id) ? '' : 'checked'} ${row.reason ? 'disabled' : ''}></div>
+        ${row.reason ? `<p class="error-copy">${esc(row.reason)}</p>` : `${field('文件', input('lora-file', row.name, 'text', attribute))}
+        <div class="comfy-strengths">${field('模型强度', number('lora-model-strength', row.strength_model))}${!row.modelOnly ? field('文字强度', number('lora-clip-strength', row.strength_clip), 'CLIP 强度：LoRA 对文字理解部分的影响。') : ''}</div>`}
+      </div>` : `<div class="group pad">
+        ${field('接入位置', select('lora-source', info.sources.length === 1 ? info.sources[0].id : '', [['', '选择接在哪一条后面'], ...info.sources.map(s => [s.id, s.name])]), '已有 LoRA 时，选最后一条可以继续叠加；接入位置影响它后面相连的模型和文字分支。')}
+        ${field('文件', input('lora-new-file', addFile || '', 'text', attribute))}
+        <div class="comfy-strengths">${field('模型强度', number('lora-new-model', 1))}${field('文字强度', number('lora-new-clip', 1), '只作用于模型的接入位置不使用文字强度。LoRA 文件需已安装在 ComfyUI，且与基础模型兼容。')}</div>
+        ${!info.sources.length ? '<p class="error-copy">没有可编辑的接入位置，请在 ComfyUI 加入原生 LoRA 节点后重新导入。</p>' : ''}
+      </div>`}
+      <details class="tool-fold"><summary>${icon('refresh')}文件列表与连接</summary><div>
+        ${btn('lora-read', '刷新文件列表')}
+        <span class="comfy-note" data-lora-list-status role="status"></span>
+        ${field('读取方式', select('lora-transport', transport, [['tavern', '经酒馆代理'], ['direct', '浏览器直连']]), '代理需要 enableCorsProxy；直连需要允许跨域，且当前设备可访问 ComfyUI。地址在引擎页配置。')}
+      </div></details><datalist id="${listId}"></datalist>
+      <div class="actions">${row ? btn('lora-apply', '应用到绘画', 'primary', row.reason ? 'disabled' : '') : btn('lora-add', '加入当前方案', 'primary', !info.sources.length || info.error ? 'disabled' : '')}${btn('lora-cancel', '取消')}</div>
+      ${row && !row.reason ? `<div class="actions">${btn('lora-remove', removeArmed ? '确认移出当前方案' : '从方案移出', 'danger', `data-id="${esc(row.id)}"`)}</div>` : ''}`;
+    updateList();
+  }
   function updateList() {
     if (!d.live) return;
     q('datalist').innerHTML = names.map(n => `<option value="${esc(n)}"></option>`).join('');
@@ -25,6 +52,7 @@ export function editComfyLoras(ctx, onSaved = () => {}, {draft = false} = {}) {
   }
   function render() {
     const info = inspectLoras(workflow);
+    if (focused) { renderFocused(info); return; }
     d.body.innerHTML = `${draft ? '' : field('方案名称', input('lora-plan-name', name, 'text', 'maxlength="60"'))}
       ${groupTitle('LoRA 文件', help('读取 ComfyUI 已安装的文件名，也可以手动填写。调整后点「应用」带回绘画草稿，再试画或保存方案；关闭本面板会放弃面板里未应用的修改。已经排队的图不受影响。'))}
       <div class="group pad">
@@ -99,12 +127,16 @@ export function editComfyLoras(ctx, onSaved = () => {}, {draft = false} = {}) {
         case 'lora-read': await readList(); break;
         case 'lora-add': {
           const add = {source: q('[data-field=lora-source]').value, lora_name: q('[data-field=lora-new-file]').value, strength_model: q('[data-field=lora-new-model]').value, strength_clip: q('[data-field=lora-new-clip]').value};
-          capture(); workflow = editLoras(workflow, {add}); resetArmed = false; render(); break;
+          capture(); workflow = editLoras(workflow, {add}); resetArmed = false;
+          if (focused) apply(); else render(); break;
         }
-        case 'lora-remove': capture(button.dataset.id); workflow = editLoras(workflow, {remove: button.dataset.id}); disabled = disabled.filter(id => id !== button.dataset.id); resetArmed = false; render(); break;
+        case 'lora-remove':
+          if (focused && !removeArmed) { removeArmed = true; button.textContent = '确认移出当前方案'; break; }
+          capture(button.dataset.id); workflow = editLoras(workflow, {remove: button.dataset.id}); disabled = disabled.filter(id => id !== button.dataset.id); resetArmed = false;
+          if (focused) apply(); else render(); break;
         case 'lora-save': save(false); break;
         case 'lora-save-as': save(true); break;
-        case 'lora-apply': capture(); api.updateComfyDraft({workflow, disabledLoras: disabled}, initial); d.close(true); onSaved(); break;
+        case 'lora-apply': capture(); apply(); break;
         case 'lora-reset':
           if (!resetArmed) { resetArmed = true; button.textContent = '确认恢复导入时的工作流'; break; }
           name = q('[data-field=lora-plan-name]')?.value ?? name; workflow = sourceWorkflow; disabled = []; resetArmed = false; render(); break;

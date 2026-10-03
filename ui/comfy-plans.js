@@ -1,6 +1,5 @@
 import {esc, btn, field, input, select, help, groupTitle} from './common.js';
 import {icon} from './icons.js';
-import {editComfyLoras} from './comfy-loras.js';
 
 /** The drawing app owns the entry points; the backend owns the working copy. */
 export function comfyPlans(ctx, view, render) {
@@ -15,7 +14,7 @@ export function comfyPlans(ctx, view, render) {
     return `<div class="group pad comfy-plan">
       <div class="row-heading"><strong>出图方案 ${help('方案包含工作流、模型、LoRA 和出图参数。修改先留在草稿，试画使用草稿；点保存才写入方案。切换已保存方案也会切换自动配图使用的方案。草稿在离开 App 后保留，刷新酒馆页面会丢弃。')}</strong><span class="save-state" data-comfy-dirty>${d.dirty ? '未保存' : '已保存'}</span></div>
       ${select('comfy-preset', d.value.id, rows).replace('aria-label="comfy-preset"', 'aria-label="出图方案"')}
-      <div class="comfy-plan-actions">${btn('comfy-loras', icon('layers') + `LoRA · ${d.loras.nodes.filter(n => !d.value.disabledLoras.includes(n.id)).length}`, 'chip-button')}${btn('tab', '参数', 'chip-button', 'data-tab="params" data-comfy-jump')}${btn('comfy-save', '保存', 'chip-button', !d.dirty ? 'disabled' : '')}${btn('comfy-manage', '管理', 'chip-button', 'aria-label="管理方案与导入"')}</div>
+      <div class="comfy-plan-actions">${btn('tab', '参数', 'chip-button', 'data-tab="params" data-comfy-jump')}${btn('comfy-save', '保存', 'chip-button', !d.dirty ? 'disabled' : '')}${btn('comfy-manage', '管理', 'chip-button', 'aria-label="管理方案与导入"')}</div>
       ${d.conflict ? `<div class="comfy-note error-copy">原方案已改变，请另存或放弃修改。${help('其他页面修改或删除过这套方案。当前草稿仍保留，保存不会覆盖别处的新改动。')}</div>` : ''}
       ${d.missing ? `<button class="text-button" data-action="tab" data-tab="params" data-comfy-jump>${esc(d.missing)} ${icon('next')}</button>` : ''}
     </div>`;
@@ -105,7 +104,6 @@ export function comfyPlans(ctx, view, render) {
   async function click(el) {
     switch (el.dataset.action) {
       case 'comfy-manage': manage(); return true;
-      case 'comfy-loras': panel?.close(); panel = editComfyLoras(ctx, render, {draft: true}); return true;
       case 'comfy-save':
         if (draft().value.id === 'default') manage();
         else { api.saveComfyDraft(); render(); ctx.notify('方案已保存'); }

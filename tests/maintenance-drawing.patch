@@ -9,7 +9,7 @@
   const f=await fixture();try{
    const png=Buffer.from([0x89,0x50,0x4e,0x47,1,2,3]).toString('base64'),sent=[];
    f.backend.imageFetch=async(url,init={})=>{sent.push({url,body:init.body?JSON.parse(init.body):null});
-@@ -1095,20 +1095,22 @@
+@@ -1095,20 +1095,23 @@
    f.click('[data-app=engines] [data-action=engine][data-engine=comfy]');f.click('[data-app=engines] [data-action=engine][data-engine=comfy]');
    await until(()=>f.d.querySelector('[data-app=engines] [data-action=comfy-test]'));
    f.click('[data-app=engines] [data-action=use-draw-engine][data-engine=comfy]');assert.equal(f.api.getState().draw.engine,'comfy');
@@ -20,7 +20,8 @@
 +  f.click('[data-app=engines] [data-action=comfy-test]');await until(()=>/连接正常/.test(f.q('[data-app=engines].view').textContent));
 +  assert.equal(f.d.querySelector('[data-app=engines] [data-field=comfy-model]'),null);
 +  assert.equal(f.d.querySelector('[data-app=engines] [data-comfy-file]'),null);
-+  f.app.open('draw');await until(()=>f.d.querySelector('[data-app=draw] [data-action=comfy-manage]'));
++  f.app.open('draw');await until(()=>f.d.querySelector('[data-app=draw] [data-tab=lora]'));
++  f.click('[data-app=draw] [data-tab=lora]');await until(()=>f.d.querySelector('[data-app=draw] [data-action=comfy-manage]'));
 +  f.click('[data-app=draw] [data-action=comfy-manage]');await until(()=>f.d.querySelector('.sheet [data-comfy-file]'));
    const badWf=new Blob(['{"nodes":[],"links":[]}'],{type:'application/json'});Object.defineProperty(badWf,'name',{value:'错误格式.json'});
 -  const badPick=f.q('[data-app=engines] [data-comfy-file]');Object.defineProperty(badPick,'files',{configurable:true,value:[badWf]});badPick.dispatchEvent(new f.w.Event('change',{bubbles:true}));await tick();

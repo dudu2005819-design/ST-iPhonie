@@ -1,25 +1,25 @@
 {
-  "checkedAt": "2026-10-03T14:05:40.347Z",
+  "checkedAt": "2026-10-03T14:36:35.027Z",
   "node": "v24.14.0",
   "fullSuite": {
     "command": "node --test --test-concurrency=1 --test-reporter=tap tests/core.test.mjs tests/role-persistence.test.mjs tests/dialogue-presentation.test.mjs tests/library.test.mjs tests/player-backend.test.mjs tests/provider-contract.test.mjs tests/backend.test.mjs tests/draw.test.mjs tests/queue.test.mjs tests/plan.test.mjs tests/chat.test.mjs tests/phone-ui.test.mjs tests/download.test.mjs tests/diagnostics.test.mjs tests/moments.test.mjs tests/call.test.mjs tests/llm.test.mjs tests/sync.test.mjs tests/compat.test.mjs tests/mimo.test.mjs tests/vibes.test.mjs tests/keystore.test.mjs tests/lore.test.mjs tests/stream.test.mjs tests/lan.test.mjs tests/apps.test.mjs tests/idb.test.mjs tests/image-engines.test.mjs tests/image-connections.test.mjs tests/comfy-workflows.test.mjs tests/comfy-loras.test.mjs tests/comfy-draft.test.mjs tests/wallet.test.mjs",
-    "count": 304,
-    "passed": 304,
+    "count": 306,
+    "passed": 306,
     "failed": 0,
     "skipped": 0,
     "exitCode": 0,
     "log": "tests/phone-release.tap"
   },
   "syntax": {
-    "javascriptFiles": 70,
+    "javascriptFiles": 71,
     "relativeImports": "resolved",
     "declarations": "syntax and public member coverage; no full TypeScript semantic compilation",
     "facadeMembers": 183
   },
   "branchSuite": {
     "command": "npm test --prefix tests",
-    "count": 27,
-    "passed": 27,
+    "count": 29,
+    "passed": 29,
     "failed": 0
   },
   "manifest": {
@@ -31,51 +31,31 @@
     "realSillyTavernRun": false,
     "realImageRequests": false,
     "installedUpdated": false,
-    "browserPreviewFailure": "CUA approval review timed out twice; sandbox Edge launch failed; two escalation approval reviews timed out. No screenshot or layout evidence.",
     "driverAccepted": false,
-    "browserPreview": false,
-    "localPreview": "artifacts/comfy-drawing-preview.html; scripts/preview-comfy.cjs --server-only; actual phone UI with isolated demo settings and mocked model lists"
+    "browserPreview": true,
+    "localPreview": "artifacts/comfy-drawing-preview.html; scripts/preview-comfy.cjs --server-only; actual phone UI with isolated demo settings and mocked model lists",
+    "browserPreviewEvidence": "tests/preview/evidence.json; actual phone UI with isolated demo backend and mocked catalogues, not real SillyTavern"
   },
   "sourceFiles": [
     {
-      "path": "download.js",
-      "sha256": "fd746bc3f122e5b7e5064024f55e87cb6cd2cd2daf41d13505d27a39a9537b35"
+      "path": "capability-contract.json",
+      "sha256": "25f5670e358f272dc188ebdec41d49ed825c347fa311dddf3f1e9a0df9625dfe"
     },
     {
-      "path": "host-apps.js",
-      "sha256": "492af1ebd8f32b8ccc5c8b2a274b53d06a8138e9f6323163fc7404ac9197ff70"
-    },
-    {
-      "path": "host-call.js",
-      "sha256": "396fc5741a3c0761ac12b8023017b4a9754b874a03674b452e0e56438434226a"
-    },
-    {
-      "path": "host-chat.js",
-      "sha256": "2beeed2310817e2194f8249be02d518799aa829a834e6eb7029450896ad379a1"
-    },
-    {
-      "path": "host-lore.js",
-      "sha256": "ded356a6b4708634726bd8e59e2746f380cc32f59327c2b1e04dde0ebd7404f4"
-    },
-    {
-      "path": "host-moments.js",
-      "sha256": "d8aaaf8c3d8376277f7ddf556a6c002e36edcde34cc3dd7d14221b6d2256541d"
-    },
-    {
-      "path": "host-pictures.js",
-      "sha256": "42a28b77d620bf9b38f497ea54621967f9db7a0765335643e6cfc0f605f151b2"
-    },
-    {
-      "path": "image-viewer.js",
-      "sha256": "0f16f2e710b09ed7227e51617de7554ad16c3deded96e2ad63230682cd32b036"
-    },
-    {
-      "path": "index.js",
-      "sha256": "0c27229c731eaede4facabb643430cf5c7c7a9b34535e5f11e8e9951c7743c5b"
+      "path": "cloud-queue/package.json",
+      "sha256": "1d733c12f0f62194071033c40b9be13d01c2e9826b0c520afeff0ca9613aeb62"
     },
     {
       "path": "cloud-queue/worker.js",
       "sha256": "1b2b88402f8f35eca8c8f6e6915fd98a5441f3c98056a4bcc827b9ce8a017c47"
+    },
+    {
+      "path": "cloud-queue/wrangler.toml",
+      "sha256": "9fc3a22a17b0f3fb9a610cb4f87366bef3aad5cb4282c15d8022d1e0da7a5550"
+    },
+    {
+      "path": "cloud-queue/部署说明.md",
+      "sha256": "a21a6eb098810f1efd1a2ba24c5cae8c958aa62a276fd894c78a4e2c0e05d11c"
     },
     {
       "path": "core/app-store.js",
@@ -230,20 +210,60 @@
       "sha256": "9c27f148a6705b1675ddaa771f3dd023b8ec7bfd927b6fbf2d2460de3161d393"
     },
     {
-      "path": "tests/comfy-draft.test.mjs",
-      "sha256": "1d42c34770b040012bbb7ffec6453aec2fce0c7b7392a5a790b051393963572d"
+      "path": "download.js",
+      "sha256": "fd746bc3f122e5b7e5064024f55e87cb6cd2cd2daf41d13505d27a39a9537b35"
     },
     {
-      "path": "tests/comfy-loras.test.mjs",
-      "sha256": "cc4026b4bc58018b1b012032b285c2ee3ce94f791dbdd363509cecb477db6571"
+      "path": "floating.css",
+      "sha256": "e4e1b6d3d26cd741db361f16664a899384187e633f6da0592ecc4052f5441075"
     },
     {
-      "path": "tests/comfy-workflows.test.mjs",
-      "sha256": "264f9b2fa6c27b66625d7c221db7caf9dd705ae97c7477d3607f2fe627ab61d9"
+      "path": "host-apps.js",
+      "sha256": "492af1ebd8f32b8ccc5c8b2a274b53d06a8138e9f6323163fc7404ac9197ff70"
     },
     {
-      "path": "tests/image-connections.test.mjs",
-      "sha256": "bcb9d2930d019ccb1f9fd84874e6219ae20749503cf47ce10d9d9501380539a2"
+      "path": "host-call.js",
+      "sha256": "396fc5741a3c0761ac12b8023017b4a9754b874a03674b452e0e56438434226a"
+    },
+    {
+      "path": "host-chat.js",
+      "sha256": "2beeed2310817e2194f8249be02d518799aa829a834e6eb7029450896ad379a1"
+    },
+    {
+      "path": "host-lore.js",
+      "sha256": "ded356a6b4708634726bd8e59e2746f380cc32f59327c2b1e04dde0ebd7404f4"
+    },
+    {
+      "path": "host-moments.js",
+      "sha256": "d8aaaf8c3d8376277f7ddf556a6c002e36edcde34cc3dd7d14221b6d2256541d"
+    },
+    {
+      "path": "host-pictures.js",
+      "sha256": "42a28b77d620bf9b38f497ea54621967f9db7a0765335643e6cfc0f605f151b2"
+    },
+    {
+      "path": "image-viewer.js",
+      "sha256": "0f16f2e710b09ed7227e51617de7554ad16c3deded96e2ad63230682cd32b036"
+    },
+    {
+      "path": "index.js",
+      "sha256": "0c27229c731eaede4facabb643430cf5c7c7a9b34535e5f11e8e9951c7743c5b"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "54b07f695c28cea823637a49c18a07a2579624cbba6bbffdb78c308458c9ce24"
+    },
+    {
+      "path": "package.json",
+      "sha256": "22c2babc4f76634d62a22e6456c4d8c7462d64e359870dceb809404f6e4e59f6"
+    },
+    {
+      "path": "README.md",
+      "sha256": "1a07761732ba77c771e8ec2ac50804b54b0e7d2e2e53acd94b61a3d2a32a582f"
+    },
+    {
+      "path": "style.css",
+      "sha256": "732408c0a0a3c7bc4629f808dca42156afc85a6b927282f04f1eda35ea04eb09"
     },
     {
       "path": "ui/apps.js",
@@ -266,12 +286,16 @@
       "sha256": "80884ef949f2e79ad73328fd51daf958df5a03eedf15b224a6670cfe8b2c82bb"
     },
     {
+      "path": "ui/comfy-lora-panel.js",
+      "sha256": "d244da829e333a2b271c1f3d6125d45abc8ace90599f77643a1f3ecd2465bfa5"
+    },
+    {
       "path": "ui/comfy-loras.js",
-      "sha256": "fa876c98ce7f1565cec16650c4ecefdd05e39a0194fcdf445d3a325bf51f9845"
+      "sha256": "ce83af0bdaa79e1190dc82101e29c3898d886f3c4cb6ba2a0f24cd72cb431e91"
     },
     {
       "path": "ui/comfy-plans.js",
-      "sha256": "9aaffa862f779500438c4474489aaac46711455cad6e77e843af7fcaffae5013"
+      "sha256": "da9297a63429724d16a18d42f39827e1a5f675934cd70631c88d824295b0a44a"
     },
     {
       "path": "ui/common.js",
@@ -279,7 +303,7 @@
     },
     {
       "path": "ui/draw.js",
-      "sha256": "0b75c6cf25bffd3353617fc3156319ed7f31080412482bdad4d1d10b9370c23e"
+      "sha256": "474cc98cce59c7dc12b6a44c4f41841904f79e585b20d04cb50f3608bab40995"
     },
     {
       "path": "ui/engines.js",
@@ -292,6 +316,10 @@
     {
       "path": "ui/icons.js",
       "sha256": "6548f33d7372807f6262100b83aaef2b7301548683b448cfc752dccdc0c669bd"
+    },
+    {
+      "path": "ui/index.html",
+      "sha256": "86ca8880a6bb44647628c070d1db0e708d8b1af355179368706af9f4a37e0c85"
     },
     {
       "path": "ui/media-apps.js",
@@ -314,6 +342,10 @@
       "sha256": "7abe71acc84f97942407e645e761fdea353d2542432600f846b04e7b0f2085f8"
     },
     {
+      "path": "ui/phone.css",
+      "sha256": "b1dc42274095cae90a7b8c1f11261c957a32878f95800df0a6ca8ea3020499be"
+    },
+    {
       "path": "ui/phone.js",
       "sha256": "7ced83f971b016b44dcd8aa8159085918d88b83fefbdfadb8a2712d88bc50d52"
     },
@@ -330,12 +362,20 @@
       "sha256": "049c2b3a9c43d326a715d7104d8bdbdad305508387cf72d78d9326bc48ee3a37"
     },
     {
+      "path": "ui/skins.css",
+      "sha256": "a70b6d6da757856b2f55904f4eba2f034fa533dbc085e68f1ae8c7600d90d315"
+    },
+    {
       "path": "ui/vibes.js",
       "sha256": "a6508d239c333257b5d72fd1b07937e16d95706bf13e79510383e3db7540a210"
     },
     {
       "path": "ui/wallpapers.js",
       "sha256": "3507f345f8fd68b1781c68656b788edc664bcdd71fa362588f9c16f2d6d3a3ec"
+    },
+    {
+      "path": "使用说明.md",
+      "sha256": "4608d460daf16b89d2f005447f9e4eedd8afeeb5692703ff836773aec7110208"
     }
   ],
   "loraCapability": {
@@ -354,5 +394,15 @@
     ],
     "comfyRuntime": "Version unknown; native LoraLoader metadata is checked when the user reads the list; no third-party manager",
     "liveCatalogue": false
+  },
+  "priorAttempt": {
+    "tests": 306,
+    "passed": 305,
+    "failed": 1,
+    "test": "a photo wallpaper can be switched back to the skin wallpaper or deleted",
+    "failure": "Read sky instead of aero after deleting photo; unrelated wallpaper implementation unchanged",
+    "isolatedRetest": "passed",
+    "fullRetest": "passed 306/306 before and after final scheme placement change",
+    "logInMaintenanceWorkspace": "tests/comfy-lora-gallery-first-run.tap"
   }
 }
