@@ -2,16 +2,12 @@ import {createView, esc, engines, btn, field, input, select, textArea, toggle, h
 
 const TIERS = {0: '未订阅', 1: 'Tablet', 2: 'Scroll', 3: 'Opus'};
 import {icon, spark} from './icons.js';
-import {editComfyLoras} from './comfy-loras.js';
 
 export function enginesApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'engines'), drafts = new Map();
   let engine = null, dirty = false, subscription = null, subscriptionError = '', subscriptionStatus = 0, textDraft = null, models = [], subscriptionLoad = 0;
   // ComfyUI: what the last connection check found ({models, samplers, schedulers} or {error}), and the tavern's workflows.
-  let comfyInfo = null;
-  let loraEditor = null;
-  const dispose = v.dispose;
-  v.dispose = () => { loraEditor?.close(); dispose(); };
+  let comfyInfo = null, comfyRequest = 0;
   // The wallet is a stack: the last card is the one in front. A tap on another card draws it to the front; a tap on
   // the front card opens it.
   let order = ['llm', ...Object.keys(engines), 'comfy', 'gpt', 'nai'];
@@ -181,38 +177,26 @@ export function enginesApp(ctx) {
         <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
   }
   function renderComfy() {
-    const c = api.getState().draw.comfy, info = comfyInfo, models = info?.models || [];
-    const current = c.workflows.find(p => p.id === c.activeWorkflow);
+    const c = api.getState().draw.comfy, info = comfyInfo;
     v.root.dataset.engine = 'comfy';
-    const placeholders = '"%prompt%"（正面）、"%negative_prompt%"（负面）、"%seed%"、"%steps%"、"%scale%"、"%width%"、"%height%"、"%sampler%"、"%scheduler%"、"%model%"、"%vae%"、"%denoise%"、"%clip_skip%"';
-    v.draw(heading('ComfyUI', '', 'Image Card')
-      + card('comfy', 'div')
-      + drawingWith('comfy')
-      + groupTitle('连接', help('插件通过酒馆服务器去连 ComfyUI（和酒馆自带的生图一样），所以不用开跨域，手机上打开酒馆也能用。\n\n地址要填「酒馆所在的电脑」能打开的地址：ComfyUI 和酒馆在同一台电脑上，就是 http://127.0.0.1:8188；在另一台电脑上，填那台电脑的局域网地址，并且 ComfyUI 要用 --listen 启动。'))
+    v.draw(heading('ComfyUI', '', 'Image Card') + card('comfy', 'div') + drawingWith('comfy')
+      + groupTitle('连接', help('生成图片经酒馆服务器连接 ComfyUI。地址填酒馆所在电脑能访问的地址；同机一般是 http://127.0.0.1:8188，另一台电脑需使用局域网地址和 --listen。'))
       + `<div class="group pad">
-          ${field('ComfyUI 地址', input('comfy-url', c.url, 'url', 'autocomplete="off" placeholder="http://127.0.0.1:8188"'))}
-          <div class="key-actions">${btn('save-comfy-url', '保存地址', 'primary')}${btn('comfy-test', icon('refresh') + '测试并读取模型', 'secondary')}</div>
-          ${info ? `<p class="hint${info.error ? ' error-copy' : ''}" style="padding:0">${esc(info.error || `✓ 连上了：${models.length} 个模型、${info.samplers.length} 个采样器`)}</p>` : ''}
-          ${field('模型', models.length
-            ? select('comfy-model', c.model, [['', '请选择'], ...models.map(m => [m.value, m.text])])
-            : input('comfy-model', c.model, 'text', 'autocomplete="off" spellcheck="false" placeholder="点上面「测试并读取模型」，或直接填文件名"'), '工作流里 "%model%" 填的就是它（默认工作流用 CheckpointLoaderSimple 读取）。')}
-        </div>`
-      + groupTitle('已存工作流', help(`在 ComfyUI 里搭好工作流，用「导出 (API)」（Export (API)）存成 JSON 文件，再点「导入 JSON 文件」。每次导入新增一套，原来的保留；可以改名、切换或删除。酒馆里保存过的工作流也可以导入。\n\n文件里的 LoRA 组合和强度原样保留；模型文件和自定义节点需要在 ComfyUI 那边装好。把需要插件填的地方写成占位符（带引号）：\n${placeholders}\n\n至少要有 "%prompt%"。每套分别记住模型、步数、尺寸等参数，切换时一起恢复。默认工作流不带 LoRA，始终保留。`))
-      + `<div class="group pad">
-          ${field('当前工作流', select('comfy-preset', c.activeWorkflow, c.workflows.map(p => [p.id, p.name])))}
-          ${current.id !== 'default' ? field('工作流名称', input('comfy-name', current.name, 'text', 'maxlength="60"')) + `<div class="key-actions">${btn('comfy-rename-wf', '保存名称', 'secondary')}${btn('comfy-delete-wf', '删除这套', 'danger')}</div>` : ''}
-          <p class="hint" style="padding:0">已保存 ${c.workflows.length} 套（含默认）。模型、步数和尺寸等设置也会跟着这套保存。点下方编辑 LoRA，可调整后保存或另存为方案。</p>
-          <div class="actions">${btn('comfy-loras', '编辑 LoRA / 另存方案', 'primary')}</div>
-          <div class="key-actions"><label class="file-pick"><input type="file" accept=".json,application/json" data-comfy-file aria-label="导入工作流 JSON 文件"><span>导入 JSON 文件</span></label>${btn('comfy-load-wf', '从酒馆导入', 'secondary')}</div>
-        </div>
-        <p class="hint">ComfyUI 没有 NovelAI 那种分角色的提示词：插件把场景和每个人的外貌合成一条提示词；NovelAI 的权重写法（{tag}、[tag]、1.2::tag::）会换成 (tag:1.1) 这种。采样器、步数、尺寸在绘图 App 的「参数」里改。</p>
-        <div class="actions">${btn('open-draw', icon('paint') + '打开绘图', 'primary')}</div>`);
+        ${field('ComfyUI 地址', input('comfy-url', c.url, 'url', 'autocomplete="off" placeholder="http://127.0.0.1:8188"'))}
+        <div class="key-actions">${btn('save-comfy-url', '保存地址', 'primary')}${btn('comfy-test', icon('refresh') + '测试连接', 'secondary')}</div>
+        ${info ? `<div class="comfy-note${info.error ? ' error-copy' : ''}">${info.error ? `连接失败 ${help(info.error)}` : '连接正常'}</div>` : ''}
+        ${field('LoRA 列表连接', select('comfy-transport', c.loraTransport, [['tavern', '经酒馆代理'], ['direct', '浏览器直连']]), '列表读取经酒馆代理时需要 enableCorsProxy。浏览器直连需要 ComfyUI 允许跨域，且当前设备能访问这个地址。生成图片仍经酒馆转发。')}
+      </div><div class="actions">${btn('open-draw', icon('paint') + '去绘画 · 方案与 LoRA', 'primary')}</div>`);
   }
   async function loadComfy() {
-    comfyInfo = null; render();
-    try { comfyInfo = await api.comfyCatalog(v.root.querySelector('[data-field=comfy-url]')?.value); }
-    catch (error) { comfyInfo = {error: error.message, models: [], samplers: [], schedulers: []}; }
-    if (!v.disposed && engine === 'comfy') render();
+    const token = ++comfyRequest, url = v.root.querySelector('[data-field=comfy-url]')?.value;
+    // Keep typed address intact while the connection check is running.
+    let info;
+    try { info = await api.comfyCatalog(url); }
+    catch (error) { info = {error: error.message}; }
+    if (!v.disposed && token === comfyRequest && engine === 'comfy' && v.root.querySelector('[data-field=comfy-url]')?.value === url) {
+      comfyInfo = info; render(); v.root.querySelector('[data-field=comfy-url]').value = url;
+    }
   }
 
   function control(f, c, rowIndex = null, parent = null) {
@@ -393,9 +377,8 @@ export function enginesApp(ctx) {
       return;
     }
     if (el.dataset.field === 'gpt-model') { api.saveDraw({gpt: {model: el.value.trim()}}); return; }
-    if (el.dataset.field === 'comfy-model') { api.saveDraw({comfy: {model: el.value.trim()}}); render(); return; }
-    if (el.dataset.field === 'comfy-preset') { try { api.selectComfyWorkflow(el.value); ctx.notify('已切换工作流'); } finally { render(); } return; }
-    if (['gpt-url', 'comfy-url', 'comfy-name'].includes(el.dataset.field)) return;
+    if (el.dataset.field === 'comfy-transport') { api.saveDraw({comfy: {loraTransport: el.value}}); return; }
+    if (['gpt-url', 'comfy-url'].includes(el.dataset.field)) return;
     if (el.dataset.field === 'guard') { api.saveDraw({guard: el.checked}); return; }
     if (el.dataset.field === 'relayOpus') { api.saveDraw({relay: {assumeOpus: el.checked}}); return; }
     if (el.dataset.field === 'relay') return;
@@ -437,21 +420,6 @@ export function enginesApp(ctx) {
   }
   v.on('input', '[data-param]', el => { if (!['checkbox', 'file'].includes(el.type) && el.tagName !== 'SELECT') return updateParam(el, false); });
   v.on('change', '[data-param]', el => updateParam(el, true));
-  // ComfyUI: a workflow JSON file, checked and saved as it is chosen.
-  v.on('change', '[data-comfy-file]', async el => {
-    const file = el.files?.[0];
-    el.value = '';
-    if (!file) return;
-    el.disabled = true;
-    try {
-      if (file.size > 300000) throw Error('工作流太大了（超过 300 KB）');
-      const workflow = await file.text();
-      if (v.disposed) return;
-      const saved = api.saveComfyWorkflow({name: file.name.replace(/\.json$/i, '').trim().slice(0, 60) || '导入的工作流', workflow});
-      if (engine === 'comfy') render(); ctx.notify('已导入并切换到「' + saved.name + '」');
-    } catch (error) { ctx.notify(error.message, {error: true}); }
-    finally { if (el.isConnected) el.disabled = false; }
-  });
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
       case 'image-save': saveImageForm(); break;
@@ -541,30 +509,6 @@ export function enginesApp(ctx) {
       }
       case 'save-comfy-url': api.saveDraw({comfy: {url: v.root.querySelector('[data-field=comfy-url]').value}}); render(); ctx.notify('ComfyUI 地址已保存'); break;
       case 'comfy-test': await v.busy(el, loadComfy); break;
-      case 'comfy-loras': loraEditor = editComfyLoras(ctx, () => { if (!v.disposed && engine === 'comfy') render(); }); break;
-      case 'comfy-rename-wf': api.saveComfyWorkflow({id: api.getState().draw.comfy.activeWorkflow, name: v.root.querySelector('[data-field=comfy-name]').value}); render(); ctx.notify('工作流名称已保存'); break;
-      case 'comfy-delete-wf': {
-        const c = api.getState().draw.comfy, current = c.workflows.find(p => p.id === c.activeWorkflow);
-        if (await ctx.confirm('删除这套工作流？', `「${current.name}」和它的参数会从插件里删掉，改用默认工作流。ComfyUI 里的模型文件不受影响。`)) { api.deleteComfyWorkflow(current.id); render(); ctx.notify('已删除工作流'); }
-        break;
-      }
-      case 'comfy-load-wf': await v.busy(el, async () => {
-        const names = await api.comfyWorkflows();
-        if (!names.length) { ctx.notify('酒馆里还没有存过工作流'); return; }
-        const d = ctx.dialog('从酒馆读取工作流', `<div class="group">${names.map(n => `<button class="list-row" data-wf="${esc(n)}"><span><strong>${esc(n.replace(/\.json$/i, ''))}</strong></span>${icon('next')}</button>`).join('')}</div>`);
-        d.body.addEventListener('click', async e => {
-          const b = e.target.closest('[data-wf]');
-          if (!b) return;
-          d.close();
-          try {
-            const workflow = await api.comfyWorkflow(b.dataset.wf);
-            if (v.disposed) return;
-            const saved = api.saveComfyWorkflow({name: b.dataset.wf.replace(/\.json$/i, '').slice(0, 60), workflow});
-            if (engine === 'comfy') render(); ctx.notify('已导入并切换到「' + saved.name + '」');
-          }
-          catch (error) { ctx.notify(error.message); }
-        });
-      }); break;
       case 'add-key': {
         const added = api.addKeys(engine, v.root.querySelector('[data-field=key]').value);
         balances.delete(engine); render(); ctx.notify(added > 1 ? `已添加 ${added} 个密钥` : '密钥已保存'); loadBalance(engine, true);

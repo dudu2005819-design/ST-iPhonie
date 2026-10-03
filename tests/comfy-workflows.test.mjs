@@ -9,6 +9,7 @@ const {IDBFactory} = dependency('fake-indexeddb'), {JSDOM} = dependency('jsdom')
 const {TTSBackend} = await import(new URL('core/backend.js', source));
 const {freshState} = await import(new URL('core/state.js', source));
 const {defaultComfy, normalizeComfy, DEFAULT_COMFY_WORKFLOW} = await import(new URL('core/image-engines.js', source));
+const {drawApp} = await import(new URL('ui/draw.js', source));
 const {enginesApp} = await import(new URL('ui/engines.js', source));
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 1, 2, 3, 4]).toString('base64');
@@ -136,35 +137,43 @@ test('ComfyUI queued jobs keep their submitted snapshot while the next workflow 
   } finally { await f.backend.close(); }
 });
 
-test('workflow UI imports files and tavern workflows, renames, switches and deletes; no JSON paste controls remain', async () => {
+test('drawing app imports, renames, switches and deletes schemes; engine page only configures connections', async () => {
   const f = await fixture(), dom = new JSDOM('<!doctype html><body></body>'), notices = [];
+  f.api.saveDraw({engine: 'comfy'});
   let confirm = false, dialog;
   const api = {...f.api, comfyWorkflows: async () => ['酒馆工作流.json'], comfyWorkflow: async () => workflow('tavern')};
-  const view = enginesApp({doc: dom.window.document, win: dom.window, api, notify: s => notices.push(s), help() {}, confirm: async () => confirm,
-    dialog: (title, html) => { dialog = dom.window.document.createElement('div'); dialog.innerHTML = html; return {body: dialog, close() {}}; }});
-  const q = selector => { const el = view.root.querySelector(selector); assert.ok(el, selector); return el; };
+  const ctx = {doc: dom.window.document, win: dom.window, api, notify: s => notices.push(s), help() {}, confirm: async () => confirm,
+    dialog: (title, html) => {
+      dialog?.close(); const body = dom.window.document.createElement('div'); body.innerHTML = html; dom.window.document.body.append(body);
+      const callbacks = []; dialog = {body, live: true, onClose(fn) { callbacks.push(fn); }, close() { this.live = false; body.remove(); for (const fn of callbacks) fn(); }}; return dialog;
+    }};
+  const engineView = enginesApp(ctx); engineView.edit('comfy');
+  assert.equal(engineView.root.querySelector('[data-comfy-file]'), null);
+  assert.equal(engineView.root.querySelector('[data-field=comfy-model]'), null); engineView.dispose();
+  const view = drawApp(ctx); dom.window.document.body.append(view.root); await tick();
+  const q = selector => { const el = dom.window.document.querySelector(selector); assert.ok(el, selector); return el; };
   const click = async action => { q(`[data-action="${action}"]`).click(); await tick(); };
   const pick = async (name, contents) => {
+    if (!dom.window.document.querySelector('[data-comfy-file]')) await click('comfy-manage');
     const file = new Blob([contents], {type: 'application/json'}); Object.defineProperty(file, 'name', {value: name});
     const input = q('[data-comfy-file]'); Object.defineProperty(input, 'files', {configurable: true, value: [file]}); input.dispatchEvent(new dom.window.Event('change', {bubbles: true})); await tick();
   };
   try {
-    view.edit('comfy');
     assert.equal(view.root.querySelector('textarea[data-field=comfy-workflow]'), null);
-    assert.equal(view.root.querySelector('[data-action=save-comfy-wf]'), null);
     await pick('bad.json', '{"nodes":[],"links":[]}');
     assert.equal(f.api.getState().draw.comfy.workflows.length, 1); assert.match(notices.at(-1), /导出/);
     await pick('角色.json', workflow('a')); const a = f.api.getState().draw.comfy.activeWorkflow;
-    q('[data-field=comfy-name]').value = '水彩'; await click('comfy-rename-wf');
+    await click('comfy-manage'); q('[data-field=comfy-name]').value = '水彩'; await click('comfy-save-current');
     assert.equal(f.api.getState().draw.comfy.workflows.find(p => p.id === a).name, '水彩');
     await pick('角色.json', workflow('b'));
-    q('[data-field=comfy-preset]').value = a; q('[data-field=comfy-preset]').dispatchEvent(new dom.window.Event('change', {bubbles: true}));
+    q('[data-field=comfy-preset]').value = a; q('[data-field=comfy-preset]').dispatchEvent(new dom.window.Event('change', {bubbles: true})); await tick();
     assert.equal(f.api.getState().draw.comfy.workflow, workflow('a'));
-    await click('comfy-delete-wf'); assert.equal(f.api.getState().draw.comfy.workflows.length, 3);
-    confirm = true; await click('comfy-delete-wf'); assert.equal(f.api.getState().draw.comfy.activeWorkflow, 'default');
-    await click('comfy-load-wf'); dialog.querySelector('[data-wf]').click(); await tick();
-    assert.equal(f.api.getState().draw.comfy.workflow, workflow('tavern'));
-    assert.equal(q('[data-field=comfy-name]').value, '酒馆工作流');
+    await click('comfy-manage'); await click('comfy-delete-wf'); q('[data-decision=cancel]').click(); await tick();
     assert.equal(f.api.getState().draw.comfy.workflows.length, 3);
+    await click('comfy-delete-wf'); q('[data-decision=yes]').click(); await tick(); assert.equal(f.api.getState().draw.comfy.activeWorkflow, 'default');
+    await click('comfy-manage'); await click('comfy-load-wf'); q('[data-wf]').click(); await tick();
+    assert.equal(f.api.getState().draw.comfy.workflow, workflow('tavern'));
+    assert.equal(f.api.getState().draw.comfy.workflows.length, 3);
+    assert.equal(f.api.getComfyDraft().value.name, '酒馆工作流');
   } finally { view.dispose(); dom.window.close(); await f.backend.close(); }
 });

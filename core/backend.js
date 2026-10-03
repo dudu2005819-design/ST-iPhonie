@@ -12,6 +12,7 @@ import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys 
 import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
 import { DRAW_ENGINES, DRAW_ENGINE_NAMES, GPT_IMAGE_MODELS, GPT_QUALITIES, normalizeGpt, gptBase, gptSize, gptPrompt, gptGenerate, normalizeComfy, comfyUrl, checkWorkflow, comfySize, comfyPrompt, comfyValues, fillWorkflow, comfyGenerate, comfyCatalog, comfyLoras, tavernWorkflows, tavernWorkflow, orientationOf, DEFAULT_COMFY_WORKFLOW, COMFY_PARAM_KEYS, applyComfyWorkflow } from './image-engines.js';
 import {activeLoraWorkflow, normalizeDisabledLoras} from './comfy-loras.js';
+import {patchComfyDraft, describeComfyDraft} from './comfy-draft.js';
 import { normalizeSettings, validateSettings, modelRules, freshState } from './state.js';
 import { normalizeRoute, switchRouteEngine, removeRoute } from './routes.js';
 import { DEFAULT_PROMPT, DEFAULT_FORMAT, promptPlan, validatePreset, parseDialogue, isPlaceholderRole, knownFormats } from './protocol.js';
@@ -688,13 +689,38 @@ export class TTSBackend {
         applyImageConnection(next.draw, engine);
         const map = new Map(this.imageKeys[engine]); map.delete(id); this.commitImageConnection(next, engine, map);
     }
+    /** Draft survives app navigation, but is never included in backups or automatic pictures. */
+    getComfyDraft() {
+        const c = this.settings.draw.comfy, selected = c.workflows.find(p => p.id === c.activeWorkflow);
+        if (!this.comfyEdit || JSON.stringify(this.comfyEdit.value) === JSON.stringify(this.comfyEdit.base)) {
+            this.comfyEdit = {base: clone(selected), value: clone(selected)};
+        }
+        const current = c.workflows.find(p => p.id === this.comfyEdit.base.id);
+        return clone(describeComfyDraft(this.comfyEdit, current));
+    }
+    updateComfyDraft(patch, expected) {
+        const draft = this.getComfyDraft();
+        if (expected && JSON.stringify(expected) !== JSON.stringify(draft.value)) throw Error('草稿已经改变，请重新打开 LoRA 面板');
+        this.comfyEdit.value = patchComfyDraft(draft.value, patch);
+        return this.getComfyDraft();
+    }
+    resetComfyDraft() { this.comfyEdit = null; return this.getComfyDraft(); }
+    saveComfyDraft({name, copy = false} = {}) {
+        const {value, base} = this.getComfyDraft();
+        const saved = this.saveComfyWorkflow({...(copy || base.id === 'default' ? {} : {id: base.id, expected: base}),
+            name: name ?? value.name, workflow: value.workflow || DEFAULT_COMFY_WORKFLOW,
+            sourceWorkflow: value.sourceWorkflow || base.workflow || DEFAULT_COMFY_WORKFLOW,
+            disabledLoras: value.disabledLoras, params: value});
+        this.resetComfyDraft();
+        return saved;
+    }
     /** Import a new workflow or rename/update a saved one. LoRA nodes and custom inputs stay untouched. */
     saveComfyWorkflow(patch) {
         if (!patch || typeof patch !== 'object') throw Error('工作流格式无效');
         const next = this.getState(), c = next.draw.comfy, old = c.workflows.find(p => p.id === patch.id);
         if (patch.id === 'default') throw Error('默认工作流不能修改，请导入为新的一套');
         if (patch.id && !old) throw Error('这套工作流已经不在了');
-        if (old && patch.expected && Object.entries(patch.expected).some(([key, value]) => JSON.stringify(old[key]) !== JSON.stringify(value))) throw Error('这套工作流在其他地方改过了，请重新打开 LoRA 编辑器');
+        if (old && patch.expected && Object.entries(patch.expected).some(([key, value]) => JSON.stringify(old[key]) !== JSON.stringify(value))) throw Error('这套方案在其他地方改过了，请另存，或重新选择方案后再改');
         let name = String(patch.name ?? old?.name ?? '').trim();
         if (!name || name.length > 60) throw Error('请填写工作流名称（最多 60 字）');
         const workflow = checkWorkflow(patch.workflow ?? old?.workflow);
@@ -830,9 +856,9 @@ export class TTSBackend {
         return { relay: !!this.settings.draw.relay.url, draw, subscription };
     }
     /** Whether params cost Anlas. free: true (covered), false (costs Anlas), null (subscription unknown). */
-    drawQuote(params) {
+    drawQuote(params, useComfyDraft = false) {
         const engine = this.settings.draw.engine;
-        if (engine !== 'nai') return this.engineQuote(engine, params);
+        if (engine !== 'nai') return this.engineQuote(engine, params, useComfyDraft ? this.getComfyDraft().value : undefined);
         const requested = normalizeDrawParams(params || this.settings.draw.params);
         const effective = this.settings.draw.guard ? guardParams(requested) : requested;
         // Through a relay that does not pass the subscription on, the user may say the account is Opus: small non-V5 images count as free.
@@ -983,14 +1009,14 @@ export class TTSBackend {
         return list;
     }
     /** GPT and ComfyUI: GPT costs money on every picture (asked first unless 每张先问 is off); ComfyUI is the user's own. */
-    engineQuote(engine, params) {
+    engineQuote(engine, params, comfy) {
         const draw = this.settings.draw, orientation = orientationOf(Number(params?.width), Number(params?.height));
         const none = { on: false, model: false, used: [], skipped: [], over: 0, encode: 0, extra: 0 };
         if (engine === 'gpt') {
             const size = gptSize(draw.gpt.model, orientation || draw.gpt.orientation), [width, height] = size.split('x').map(Number);
             return { engine, params: { model: draw.gpt.model, width, height, seed: -1 }, clamped: false, free: draw.gpt.ask ? false : true, paid: true, guard: false, v5: false, usage: null, vibes: none, vibeAnlas: 0 };
         }
-        const c = draw.comfy, size = comfySize(c, orientation || orientationOf(c.width, c.height));
+        const c = comfy || draw.comfy, size = comfySize(c, orientation || orientationOf(c.width, c.height));
         return { engine, params: { model: c.model, ...size, steps: c.steps, scale: c.scale, sampler: c.sampler, seed: Number.isInteger(params?.seed) && params.seed >= 0 ? params.seed : -1 }, clamped: false, free: true, guard: false, v5: false, usage: null, vibes: none, vibeAnlas: 0 };
     }
     /** Whether pictures can be drawn with the engine in use; drawMissing() says what is missing. */
@@ -1019,15 +1045,16 @@ export class TTSBackend {
     }
     /** Generates one image and keeps it in the album. Requests wait in the NovelAI queue (see draw-queue.js).
      *  key identifies the job in the queue (the same key joins the job already waiting); label is shown in the line. */
-    generateImage({ prompt, negative = '', characters = [], params, allowPaid = false, name = '', key, label = '' } = {}) {
+    generateImage({ prompt, negative = '', characters = [], params, allowPaid = false, name = '', key, label = '', useComfyDraft = false } = {}) {
         this.assertOpen();
         if (!String(prompt || '').trim()) return Promise.reject(Error('请先写提示词'));
         const engine = this.settings.draw.engine;
         if (!this.drawReady()) return Promise.reject(Error(this.drawMissing()));
-        const quote = this.drawQuote(params);
+        const quote = this.drawQuote(params, useComfyDraft);
         if (engine !== 'nai') {
             if (quote.free === false && !allowPaid) return Promise.reject(Object.assign(Error('GPT 生图每张都要花钱，需要确认后再生成'), { code: 'PAID' }));
-            const comfy = engine === 'comfy' ? clone(Object.fromEntries(['url', 'workflow', 'disabledLoras', ...COMFY_PARAM_KEYS].map(k => [k, this.settings.draw.comfy[k]]))) : undefined;
+            const c = useComfyDraft && engine === 'comfy' ? {...this.settings.draw.comfy, ...this.getComfyDraft().value} : this.settings.draw.comfy;
+            const comfy = engine === 'comfy' ? clone(Object.fromEntries(['url', 'workflow', 'disabledLoras', ...COMFY_PARAM_KEYS].map(k => [k, c[k]]))) : undefined;
             const picture = {prompt, negative, characters: clone(characters), quote, comfy};
             const job = this.drawQueue.add({ key, label: label || String(prompt).slice(0, 40), task: async signal => {
                 this.assertOpen();
@@ -1410,10 +1437,11 @@ export class TTSBackend {
             imageConnectionList: engine => this.imageConnectionList(engine), saveImageConnection: (engine, patch) => this.saveImageConnection(engine, patch), selectImageConnection: (engine, id) => this.selectImageConnection(engine, id), deleteImageConnection: (engine, id) => this.deleteImageConnection(engine, id),
             drawReady: () => this.drawReady(), drawMissing: () => this.drawMissing(), paidPrompt: () => this.paidPrompt(), comfyCatalog: url => this.comfyCatalog(url), comfyWorkflows: () => this.comfyWorkflows(), comfyWorkflow: name => this.comfyWorkflow(name),
             saveComfyWorkflow: patch => this.saveComfyWorkflow(patch), selectComfyWorkflow: id => this.selectComfyWorkflow(id), deleteComfyWorkflow: id => this.deleteComfyWorkflow(id),
+            getComfyDraft: () => this.getComfyDraft(), updateComfyDraft: (patch, expected) => this.updateComfyDraft(patch, expected), resetComfyDraft: () => this.resetComfyDraft(), saveComfyDraft: options => this.saveComfyDraft(options),
             comfyLoras: options => this.comfyLoras(options),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },
-            listVibes: () => this.listVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),
+            listVibes: () => this.listVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: (params, useComfyDraft) => this.drawQuote(params, useComfyDraft),
             generateImage: input => this.generateImage(input).then(({ blob, ...result }) => result),
             drawQueue: () => this.drawQueue.list(), cancelDraw: key => this.drawQueue.cancel(key), cancelAllDraws: () => this.drawQueue.cancelAll(),
             cloudQueueError: () => this.drawQueue.remoteError, testCloudQueue: value => this.testCloudQueue(value), newRoomCode: () => newRoomCode(),

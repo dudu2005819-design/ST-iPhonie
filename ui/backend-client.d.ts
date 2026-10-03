@@ -131,6 +131,8 @@ export interface ImageConnectionInfo extends ImageConnection { current: boolean;
 export interface GptImageSettings { url: string; model: string; quality: 'auto' | 'low' | 'medium' | 'high'; orientation: 'portrait' | 'landscape' | 'square'; ask: boolean; style: string; }
 /** Reached through the tavern's ComfyUI proxy. workflow: API-format JSON with "%prompt%" and the other placeholders ('' = the default one). */
 export interface ComfyWorkflow { id: string; name: string; workflow: string; sourceWorkflow?: string; disabledLoras: string[]; model: string; vae: string; sampler: string; scheduler: string; steps: number; scale: number; width: number; height: number; clipSkip: number; }
+export interface ComfyDraft { base: ComfyWorkflow; value: ComfyWorkflow; dirty: boolean; conflict: boolean; controls: string[]; missing: string;
+    loras: {error?: string; nodes: Array<{id: string; name: string; strength_model: number; strength_clip?: number; modelOnly: boolean; reason?: string}>; sources: Array<{id: string; name: string; modelOnly: boolean}>}; }
 export interface ComfySettings extends Omit<ComfyWorkflow, 'id' | 'name'> { url: string; loraTransport: 'tavern' | 'direct'; style: string; activeWorkflow: string; workflows: ComfyWorkflow[]; }
 export interface VibeGroup { id: string; name: string; items: Array<{ vibe: string; strength: number }>; }
 export interface VibeSettings { enabled: boolean; use: { kind: '' | 'group' | 'vibe'; id: string }; groups: VibeGroup[]; }
@@ -157,7 +159,7 @@ export interface DrawQuote { params: DrawParams; clamped: boolean; /** null when
     /** GPT / ComfyUI only: which engine; paid: GPT (every picture costs money). */
     engine?: DrawEngine; paid?: boolean; }
 export interface DrawCharacter { prompt: string; negative?: string; /** 0-24 on a 5x5 grid, -1 lets the model decide. */ position: number; }
-export interface DrawInput { prompt: string; negative?: string; characters?: DrawCharacter[]; params?: Partial<DrawParams>; allowPaid?: boolean; name?: string; /** Queue key; the same key joins the waiting job. */ key?: string; label?: string; }
+export interface DrawInput { useComfyDraft?: boolean; prompt: string; negative?: string; characters?: DrawCharacter[]; params?: Partial<DrawParams>; allowPaid?: boolean; name?: string; /** Queue key; the same key joins the waiting job. */ key?: string; label?: string; }
 /** seed is -1 for GPT (it takes none); params are what the engine used (GPT has no steps). */
 export interface DrawResult { photoId: string; seed: number; params: DrawParams; prompt: string; engine: DrawEngine; }
 export interface SettingsSnapshot { state: Settings; revision: number; }
@@ -462,6 +464,10 @@ export interface BackendFacade {
     comfyWorkflows(): Promise<string[]>;
     comfyWorkflow(name: string): Promise<string>;
     saveComfyWorkflow(patch: {id?: string; name?: string; workflow?: string; sourceWorkflow?: string; disabledLoras?: string[]; params?: Partial<ComfyWorkflow>; expected?: Partial<ComfyWorkflow>}): ComfyWorkflow;
+    getComfyDraft(): ComfyDraft;
+    updateComfyDraft(patch: {workflow?: string; disabledLoras?: string[]; params?: Partial<ComfyWorkflow>}, expected?: ComfyWorkflow): ComfyDraft;
+    resetComfyDraft(): ComfyDraft;
+    saveComfyDraft(options?: {name?: string; copy?: boolean}): ComfyWorkflow;
     selectComfyWorkflow(id: string): void;
     deleteComfyWorkflow(id: string): void;
     comfyLoras(options?: {transport?: 'tavern' | 'direct'; signal?: AbortSignal}): Promise<string[]>;
@@ -481,7 +487,7 @@ export interface BackendFacade {
     cloudQueueError(): string;
     testCloudQueue(value?: Partial<CloudQueueSettings>): Promise<{ ok: true; length: number; holder: string; cooldown: number } | { ok: false; message: string }>;
     newRoomCode(): string;
-    drawQuote(params?: Partial<DrawParams>): DrawQuote;
+    drawQuote(params?: Partial<DrawParams>, useComfyDraft?: boolean): DrawQuote;
     /** Saved vibes (summaries, newest first). */
     listVibes(): VibeSummary[];
     /** Imports .naiv4vibe, .naiv4vibebundle, 智绘姬 exports and pictures; groups in the files become groups. */

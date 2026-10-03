@@ -162,7 +162,7 @@ export function checkWorkflow(text) {
   if (!workflowPlaceholders(raw).includes('prompt')) throw Error('工作流里没有 "%prompt%"：把正面提示词那一栏的文字换成 "%prompt%"（带引号），插件才知道往哪里填');
   return raw;
 }
-function comfyParams(c) {
+export function comfyParams(c) {
   const base = COMFY_DEFAULT_PARAMS;
   const n = (v, min, max, fallback, step = 1) => { const x = Number(v); return Number.isFinite(x) ? Math.min(max, Math.max(min, Math.round(x / step) * step)) : fallback; };
   const word = (v, fallback) => { const s = String(v ?? '').trim(); return s.length <= 300 ? s : fallback; };
@@ -252,7 +252,7 @@ export function fillWorkflow(text, values) {
   return out;
 }
 export function comfyValues(c, {prompt, negative, width, height, seed}) {
-  if (!c.model && (!c.workflow || workflowPlaceholders(c.workflow).includes('model'))) throw Error('还没有选 ComfyUI 的模型：在引擎卡包的 ComfyUI 里读取模型列表再选一个');
+  if (!c.model && (!c.workflow || workflowPlaceholders(c.workflow).includes('model'))) throw Error('还没有选 ComfyUI 的模型，请在绘画 App 的参数里选择');
   return {prompt, negative_prompt: negative, seed, steps: c.steps, scale: c.scale, width, height, sampler: c.sampler, scheduler: c.scheduler, model: c.model, vae: c.vae, denoise: 1, clip_skip: -c.clipSkip};
 }
 

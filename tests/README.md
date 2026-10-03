@@ -7,7 +7,8 @@
 1. **NovelAI / GPT 多组连接**（`069e57d`）：每家最多 50 组，保存名称、地址和密钥；GPT 模型、NovelAI 的 Opus 假设各组独立。旧配置自动迁移，新建不继承旧密钥。普通设置只存连接信息，密钥继续走本机 KeyStore；加密备份可恢复全部组。删除/清除仅影响选中的组。生成或排队时阻止换连接，切换后旧订阅查询不能覆盖新账号。
 2. **ComfyUI 多工作流**（`b30a4a1`）：最多 20 套（含保留的默认套），导入后自动选中；可命名、切换、删除，同名导入另存并加编号。旧自定义流程保留为「原有工作流」。每套保留原始 API JSON 内的多个 LoRA 及其强度、节点连接，分别记住模型、VAE、采样器、调度器、步数、CFG、尺寸和 CLIP Skip；地址/画风仍共用。参数沿用占位符替换，文件内写死的参数保持原值。移除 JSON 粘贴框和粘贴保存按钮，保留文件导入和从酒馆导入。
 3. **原生 LoRA 编辑与方案**：新增独立编辑面板，读取 ComfyUI 自带列表，支持手填、替换、多条叠加、强度、启停和移除；保存当前或另存，保留原始工作流可恢复。操作仅针对原生 LoraLoader / LoraLoaderModelOnly 及明确识别的接入位置，未知节点保留。关闭面板丢弃工作流草稿，读取列表不会抹掉输入，关闭后取消请求。ComfyUI 队列改为捕获每次提交的配置，允许为下一张图改方案，已排队任务不受影响；生图引擎/账号切换保护仍保留。
-4. **说明与测试**：更新使用说明，纠正旧文档里 NovelAI 只能保存一个密钥的描述。没有改发布版本号或安装服务器插件。
+4. **绘画 App 集中方案与草稿**（本轮）：方案选择、LoRA、模型参数、导入/改名/删除/保存/另存集中到绘画 App；引擎只留连接设置。复用手机组件和配色，说明放入小 i，列表设置折叠。新增会话草稿，离开 App 保留、刷新页面丢弃；试画使用草稿，自动出图仍使用已保存方案。保存失败或陈旧保存保留草稿；默认只能另存。参数按实际占位符显示，已排队请求仍保留提交配置。
+5. **说明与测试**：更新使用说明，纠正旧文档里 NovelAI 只能保存一个密钥的描述。没有改发布版本号或安装服务器插件。
 
 ## 重点检查
 
@@ -32,14 +33,23 @@ npm test --prefix tests
 
 `image-connections.test.mjs` 的 9 项测试覆盖生图连接迁移、密钥切换、恢复及界面操作。`comfy-workflows.test.mjs` 的 6 项测试覆盖旧流程迁移、多个 LoRA 的实际请求内容、参数独立保存、重载/备份恢复、导入失败、数量限制、队列配置副本，以及导入/改名/切换/删除的界面操作。`comfy-loras.test.mjs` 的 7 项测试覆盖原生节点编辑、两路接线、停用/移除、拒绝不支持的接线、目录读取、原件和备份、编辑面板、陈旧请求与关闭取消。
 
-最新检查时间、完整维护测试结果、分支测试结果及源码哈希见 `validation.json`。分支附带累计新增的 22 项回归测试；完整维护测试在开发工作区中。
+最新检查时间、完整维护测试结果、分支测试结果及源码哈希见 `validation.json`。分支附带累计新增的 27 项回归测试；完整维护测试在开发工作区中。
+
+`comfy-draft.test.mjs` 新增 5 项：草稿隔离与模拟出图、保存失败/冲突、删除后另存恢复、队列快照，以及真实手机组件的 jsdom 交互（LoRA 应用、帮助不关闭弹层、失败导入保留草稿、另存、删除取消）。
+
+## 给 Claude 的前端交接
+
+- `ui/comfy-plans.js` 负责绘画页方案卡片和管理弹层；`ui/comfy-loras.js` 的 `{draft: true}` 模式应用到绘画草稿，不直接落盘。`ui/draw.js` 负责参数/提示词/出图，`phone.css` 沿用现有颜色变量。
+- 功能接口：`getComfyDraft()` 返回 `value/base/dirty/conflict/controls/loras/missing`；`updateComfyDraft({params, workflow, disabledLoras}, expected?)` 原子更新草稿；`resetComfyDraft()` 放弃修改并跟随当前已保存方案；`saveComfyDraft({name,copy})` 保存/另存，失败不清草稿。`drawQuote(params,true)` 和 `generateImage({...input,useComfyDraft:true})` 仅用于手动试画。旧接口继续兼容。
+- `controls` 是工作流占位符支持的字段；未出现的参数不展示无效控件。不保证识别所有自定义节点、实际模型兼容性或工作流写死的尺寸。LoRA 节点连接仍由纯函数处理，UI 只负责收集表单。
+- 后续可细修卡片密度、按钮层级、文件选择/强度控件和窄屏视觉；保持草稿与保存的区别、失败不丢修改、帮助不关闭编辑弹层、自动配图不被临时修改干扰。手机现有弹层只能同时打开一个，确认操作需保留当前草稿。
 
 ## 尚待实测
 
-没有安装到用户酒馆。浏览器预览工具在启动阶段失败（Windows 沙箱 ACL 错误），这里的界面证据是 jsdom 自动交互。真实酒馆重载、手机视觉效果、真实服务出图、用户自己的 LoRA/自定义节点兼容性仍待试用。自动检查不能代替用户验收。
+没有安装到用户酒馆。本轮浏览器工具的自动审批超时；沙箱内 Edge 启动也失败，未取得渲染截图。维护目录提供可操作本地预览（`artifacts/comfy-drawing-preview.html` 与 `scripts/preview-comfy.cjs --server-only`），使用实际手机组件、示例方案和模拟列表，不连接真实服务。这里的界面验证证据仍是 jsdom 自动交互。真实酒馆重载、手机视觉效果、真实服务出图、用户自己的 LoRA/自定义节点兼容性仍待试用。自动检查不能代替用户验收。
 
 LoRA 列表读取：依据本机 SillyTavern 1.19.0 的 `src/server-main.js` 与 `src/middleware/corsProxy.js` 核对可选 `/proxy/:url(*)` GET 转发；未修改酒馆配置。未开启时返回错误并给出操作提示，另可显式选择浏览器直连或手填文件名。ComfyUI 依据[原生 LoraLoader](https://docs.comfy.org/built-in-nodes/LoraLoader)和[节点信息接口](https://docs.comfy.org/development/comfyui-server/comms_routes)，运行时检查返回的节点字段。没有取得用户 ComfyUI 版本或真实服务响应，目录读取及 CORS 配置仍需真实环境验证；没有宣称任意自定义工作流都可自动编辑。
 
-开发工作区的源码是 `staging/extension`，Git 仓库是 `release/github`。完整检查用开发工作区的 `node scripts/check-phone-release.cjs`。`maintenance-fixtures.patch` 记录检查脚本及两处原有测试适配：朋友圈测试走公开密钥保存入口；语音字段测试模拟余额查询并等待查询结束后再上传，避免真实网络返回打断该测试（原分支也复现了超时）。ComfyUI 这一轮还调整了本地 `phone-ui.test.mjs`：断言粘贴控件不存在，通过文件入口检查无效 JSON，并使用保存列表切回默认；这些交互也覆盖在可独立运行的 `comfy-workflows.test.mjs` 中。
+开发工作区的源码是 `staging/extension`，Git 仓库是 `release/github`。完整检查用开发工作区的 `node scripts/check-phone-release.cjs`。`maintenance-fixtures.patch` 记录检查脚本及两处原有测试适配：朋友圈测试走公开密钥保存入口；语音字段测试模拟余额查询并等待查询结束后再上传，避免真实网络返回打断该测试（原分支也复现了超时）。ComfyUI 这一轮还调整了本地 `phone-ui.test.mjs`：断言粘贴控件不存在，通过文件入口检查无效 JSON，并使用保存列表切回默认；本轮迁移到绘画页并区分草稿的测试差异另见 `maintenance-drawing.patch`；对应交互覆盖在可独立运行的 `comfy-workflows.test.mjs` 和 `comfy-draft.test.mjs` 中。
 
 工程指引：`sillytavern-extension-dev`；资料快照 `2026-08-18`，加载 `ST-A0`、`ST-D5`，并核对 `ST-E5` 的扩展边界。没有引入新的宿主接口或设计素材。真实宿主验收仍未完成。
