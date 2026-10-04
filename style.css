@@ -1,11 +1,5 @@
 /* ST-iPhonie host styles: the phone dialog, the extension drawer, chat waves and in-text pictures. */
 
-/* ---------- SillyTavern background compatibility ----------
-   #bg1 / #bg_custom are decorative host backgrounds. A few themes lift them above #chat, which can hide the
-   inline voice controls and intercept taps. Keep only these native background nodes behind interactive content. */
-html body > #bg1,
-html body > #bg_custom{z-index:-1!important;pointer-events:none!important}
-
 /* ---------- Phone dialog ---------- */
 #sttts-panel{padding:0;border:0;border-radius:0;width:min(470px,98vw);height:min(940px,98dvh);max-width:100vw;max-height:100dvh;background:transparent;box-shadow:none;overflow:hidden}
 #sttts-panel::backdrop{background:#0d103088;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
@@ -26,7 +20,7 @@ html body > #bg_custom{z-index:-1!important;pointer-events:none!important}
 #sttts-extension-entry .sttts-entry-controls{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 #sttts-extension-entry .sttts-entry-controls button{flex:1;white-space:nowrap}
 #sttts-extension-entry .sttts-status{display:block;min-height:1.4em;margin-top:4px;font-size:.8em;opacity:.8}
-[data-sttts-line]{display:inline;position:relative;z-index:1}
+[data-sttts-line]{display:inline}
 
 /* ---------- Chat waves ----------
    Every colour comes from the tavern theme:
@@ -42,7 +36,7 @@ html body > #bg_custom{z-index:-1!important;pointer-events:none!important}
   --sttts-quote:var(--SmartThemeQuoteColor,var(--sttts-body));
   --sttts-em:var(--SmartThemeEmColor,var(--sttts-body));
   --sttts-under:var(--SmartThemeUnderlineColor,var(--sttts-em));
-  display:inline-flex;position:relative;z-index:1;align-items:center;justify-content:center;vertical-align:middle;width:34px;height:28px;min-height:28px;margin:0 2px;padding:3px 5px;
+  display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:34px;height:28px;min-height:28px;margin:0 2px;padding:3px 5px;
   font:inherit;border:0;border-radius:999px;box-shadow:none;background:transparent;cursor:pointer;touch-action:manipulation;
   color:color-mix(in srgb,var(--sttts-body) 50%,transparent);transition:color 160ms,background 160ms,box-shadow 160ms}
 #chat [data-sttts-action="line"]:hover{background:color-mix(in srgb,var(--sttts-body) 9%,transparent)}
