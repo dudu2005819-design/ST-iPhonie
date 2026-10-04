@@ -83,7 +83,7 @@ export function buildReport(f) {
       else items.push(item('ok', `正文里画出了 ${r.waves} 个声波`));
       if (r.stale) items.push(item('warn', `${r.stale} 个声波是刷新前画的`, '点一下会重新画好；经常出现的话，可能有插件缓存了旧的消息。'));
       if (r.covered) {
-        const hostBackground = /#(?:bg1|bg_custom)(?:\\.|$)/.test(r.covered);
+        const hostBackground = /#(?:bg1|bg_custom)(?:\.|$)/.test(r.covered);
         items.push(item('error', hostBackground ? '酒馆背景层仍盖住声波' : '声波被别的东西盖住了',
           hostBackground
             ? `上次手机关着时看到，盖在上面的是 ${r.covered}。这是 SillyTavern 自己的背景层，正常应在正文后面；ST-iPhonie 已加背景兼容保护，如果这里仍出现，说明当前主题用更强的规则重新抬高了它。`
