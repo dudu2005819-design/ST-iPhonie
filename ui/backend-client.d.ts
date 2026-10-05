@@ -2,7 +2,7 @@
 export type Engine = 'fish' | 'mini' | 'eleven' | 'mimo';
 /** Keys cover the voice engines and NovelAI. */
 /** llm: the key of the phone's own text model (an OpenAI-compatible API). */
-export type KeyEngine = Engine | 'nai' | 'llm' | 'gpt';
+export type KeyEngine = Engine | 'nai' | 'llm' | 'embed' | 'gpt';
 /** What the drawing App and every picture use: NovelAI, a GPT image model, or the user's ComfyUI. */
 export type DrawEngine = 'nai' | 'gpt' | 'comfy';
 export type Theme = 'system' | 'light' | 'dark';
@@ -87,6 +87,8 @@ export interface Settings {
     moments: MomentsSettings;
     calls: CallsSettings;
     text: TextSettings;
+    /** 向量模型 for 记忆 (key kept as KeyEngine 'embed'). */
+    embed: EmbedSettings;
     sync: SyncSettings;
 }
 export interface DrawParams {
@@ -174,6 +176,7 @@ export interface ChatPreset {
     /** Template for 带进剧情; must contain {{聊天记录}}. */ bring: string;
     /** Where the brought chat is injected into the next story request. */ injection: Injection;
     /** Most posts one 朋友圈 refresh makes (1-5). */ posts: number;
+    /** 记忆 of the phone chats (core/memory.js). */ memory: MemoryOptions;
     /** use: where the rule is used. */
     entries: Array<{ id: string; title: string; enabled: boolean; text: string; use: Array<'dm' | 'group' | 'moments'> }>;
 }
@@ -190,6 +193,15 @@ export interface SyncStatus { enabled: boolean; available: boolean; parts: Recor
     remote: { savedAt: number; deviceName: string; device: string } | null; lastResult?: { pulled: string[]; pushed: string[]; merged: string[] }; }
 export interface TextPreset { id: string; name: string; url: string; model: string; temperature: number; maxTokens: number; }
 export interface TextSettings { source: 'tavern' | 'custom'; active: string; presets: TextPreset[]; }
+/** 向量模型: an OpenAI-compatible Embeddings API; off = 记忆 searches locally. */
+export interface EmbedSettings { enabled: boolean; url: string; model: string; }
+/** 记忆: batch = messages per 聊天摘要, stage = 摘要 per 阶段总结, epic = nodes per higher merge, recall = old pieces brought back, story = also into the story. */
+export interface MemoryOptions { enabled: boolean; batch: number; stage: number; epic: number; recall: number; story: boolean; }
+/** A summary: level 0 聊天摘要, 1 阶段总结, 2+ 长期总览; coveredBy: the higher one it was merged into ('' = sent to the model). */
+export interface MemoryNode { id: string; level: number; text: string; from: number; to: number; count: number; covers: string[]; coveredBy: string; at: number; edited?: boolean; }
+export interface MemoryBook { id: string; kind: 'memory'; threadId: string; name: string; at: number; through: string; throughAt: number; nodes: MemoryNode[]; }
+export interface MemoryStatus { busy: boolean; error?: string; vectorError?: string; at?: number;
+    used?: { at: number; nodes: number; vector: boolean; recalled: Array<{ from: number; to: number; score: number; text: string }> }; }
 /** A change to the text settings: whole presets, or name/url/model/temperature/maxTokens of the preset in use. */
 export type TextPatch = Partial<TextSettings> & Partial<Omit<TextPreset, 'id'>>;
 export interface SpokenLine { role: string; text: string; emotion?: string; translation?: string; }
@@ -566,6 +578,11 @@ export interface BackendFacade {
     /** 朋友圈 options. */
     saveCalls(patch: Partial<CallsSettings>): CallsSettings;
     saveText(patch: TextPatch): TextSettings;
+    saveEmbed(patch: Partial<EmbedSettings>): EmbedSettings;
+    embedReady(): boolean;
+    embedModels(draft?: Partial<EmbedSettings>): Promise<string[]>;
+    /** Turns a test sentence into a vector; resolves with its size. */
+    embedTest(draft?: Partial<EmbedSettings>): Promise<number>;
     /** The key of one text model preset (each preset keeps its own). */
     setTextKey(id: string, key: string): void;
     clearTextKey(id: string): void;
@@ -637,6 +654,12 @@ export interface BackendFacade {
     createThread(value: { type: 'dm' | 'group'; members: string[]; name?: string }): Promise<ChatThread>;
     updateThread(id: string, patch: { name?: string; members?: string[]; pinned?: boolean; muted?: boolean }): Promise<ChatThread>;
     deleteThread(id: string): Promise<boolean>;
+    /** 记忆 of a chat (an empty book when nothing is written up yet). */
+    memoryBook(threadId: string): Promise<MemoryBook>;
+    memoryEdit(threadId: string, nodeId: string, text: string): Promise<MemoryBook>;
+    /** Deletes a summary; what it covered is sent to the model again. */
+    memoryRemove(threadId: string, nodeId: string): Promise<MemoryBook>;
+    memoryForget(threadId: string): Promise<void>;
     /** read: the chat is on screen, so new replies do not count as unread. */
     appendChat(id: string, messages: ChatMessageInput[], options?: { read?: boolean }): Promise<ChatThread>;
     deleteChatMessages(id: string, ids: string[]): Promise<ChatThread>;
@@ -717,6 +740,9 @@ export interface BackendAPI extends BackendFacade {
     forumBusy(): boolean;
     /** 查手机: looks into a character's phone (a new snapshot). */
     peekLook(name: string): Promise<PeekSnapshot>;
+    /** 立即整理: writes up what is due in the chat's memory; resolves with how many summaries were written. */
+    memoryTidy(threadId: string): Promise<number>;
+    memoryStatus(threadId: string): MemoryStatus;
     peekBusy(): boolean;
     /** Draws one album photo of a character's phone with NovelAI; allowPaid when it would cost Anlas. */
     /** index 'wallpaper' draws the wallpaper. */

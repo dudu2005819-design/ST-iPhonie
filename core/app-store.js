@@ -1,18 +1,18 @@
-// Documents of the smaller phone apps (论坛 posts and its 热搜, 查手机 snapshots), kept in this browser (IndexedDB) and
-// scoped to the tavern account like the other local data. Each document is {id, kind, at, ...}; the apps check their own
+// Documents of the smaller phone apps (论坛 posts and its 热搜, 查手机 snapshots; in a database of their own, 记忆), kept in
+// this browser (IndexedDB) and scoped to the tavern account like the other local data. Each document is {id, kind, at, ...}; the apps check their own
 // fields (core/forum.js, core/peek.js) before anything is written.
 import {connectionLost, lostError} from './idb.js';
 const fail = (message, code = 'INVALID') => Object.assign(new Error(message), {code});
 
 export class AppStore {
-  #scope; #factory; #db = null; #opening = null; #closed = false;
-  constructor(scope, {indexedDB = globalThis.indexedDB} = {}) { this.#scope = String(scope); this.#factory = indexedDB; }
+  #scope; #factory; #name; #db = null; #opening = null; #closed = false;
+  constructor(scope, {indexedDB = globalThis.indexedDB, database = 'st-iphonie-apps-v1'} = {}) { this.#scope = String(scope); this.#factory = indexedDB; this.#name = database; }
   async #open() {
     if (this.#closed) throw fail('已关闭', 'CLOSED');
     if (this.#db) return this.#db;
     if (!this.#factory?.open) throw fail('浏览器不支持本地保存，请检查存储权限', 'STORAGE_UNAVAILABLE');
     this.#opening ||= new Promise((resolve, reject) => {
-      const req = this.#factory.open('st-iphonie-apps-v1', 1);
+      const req = this.#factory.open(this.#name, 1);
       req.onupgradeneeded = () => { const store = req.result.createObjectStore('docs', {keyPath: ['scope', 'id']}); store.createIndex('scope', 'scope'); };
       req.onerror = () => reject(fail('无法打开本地数据，请检查浏览器的存储权限', 'STORAGE_UNAVAILABLE'));
       req.onblocked = () => reject(fail('另一个页面占用了本地数据，请关闭旧页面后重试', 'STORAGE_BLOCKED'));

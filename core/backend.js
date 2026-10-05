@@ -6,6 +6,8 @@ import { languageCode } from './languages.js';
 import { normalizeMoments, buildMomentsRequest } from './moments.js';
 import { normalizeCalls, buildCallRequest } from './call.js';
 import { normalizeText, activeText, customRequest, listModels, streamText, asMessages, TEXT_PRESET_ID } from './llm.js';
+import { normalizeEmbed, embedReady, embedTexts } from './embed.js';
+import { bookId, emptyBook, cleanBook, removeNode } from './memory.js';
 import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
@@ -45,7 +47,7 @@ async function vibeThumbnail(base64) {
 const clone = value => structuredClone(value);
 const engineCheck = engine => { if (!ENGINES.includes(engine)) throw Error('引擎无效'); };
 // Keys cover the voice engines, NovelAI for drawing, and llm (the phone's own text model).
-const keyCheck = engine => { if (engine !== 'nai' && engine !== 'llm' && engine !== 'gpt') engineCheck(engine); };
+const keyCheck = engine => { if (engine !== 'nai' && engine !== 'llm' && engine !== 'gpt' && engine !== 'embed') engineCheck(engine); };
 const modelCheck = (engine, model) => { engineCheck(engine); if (model && !TTSParameters.catalogs[engine].models.includes(model)) throw Error('请选择列表中的模型'); };
 const message = error => error instanceof TypeError ? '设置格式无效，请检查字段和条目' : error.message;
 
@@ -80,6 +82,10 @@ export class TTSBackend {
         this.moments = new MomentStore(this.settings.scope, { indexedDB });
         // 论坛 and 查手机 (core/forum.js, core/peek.js).
         this.apps = new AppStore(this.settings.scope, { indexedDB });
+        // 记忆 (core/memory.js): one book per chat, and the vectors of its older messages. A database of its own: big.
+        this.memoryStore = new AppStore(this.settings.scope, { indexedDB, database: 'st-iphonie-memory-v1' });
+        // 向量模型's key (core/embed.js).
+        this.embedKey = '';
         // 分区: the tavern's open character card (or group), told by the tavern page (index.js).
         this.space = { key: '', name: '', members: [] };
         this.subscription = null;
@@ -107,7 +113,7 @@ export class TTSBackend {
     }
     async initialize() {
         this.assertOpen();
-        try { await this.keyStore.open?.(); for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai' || engine === 'gpt') this.imageKeys[engine] = parseTextKeys(key); else if (engine === 'llm') this.textKeys = parseTextKeys(key); else this.providers.setKey(engine, key); } this.activateImageKeys(); }
+        try { await this.keyStore.open?.(); for (const [engine, key] of this.keyStore.load()) { if (engine === 'nai' || engine === 'gpt') this.imageKeys[engine] = parseTextKeys(key); else if (engine === 'llm') this.textKeys = parseTextKeys(key); else if (engine === 'embed') this.embedKey = String(key).trim(); else this.providers.setKey(engine, key); } this.activateImageKeys(); }
         catch (error) { this.notify(error.message); }
         try {
             const phone = await this.library.getPhone();
@@ -311,6 +317,7 @@ export class TTSBackend {
         keyCheck(engine); if (!String(key).trim()) throw Error('请填写密钥，或使用清除密钥');
         // The text model: a stored list (from a backup) replaces every preset's key; a plain key is the active preset's.
         if (engine === 'llm') { if (String(key).includes('\t')) this.storeTextKeys(parseTextKeys(key)); else this.setTextKey(this.settings.text.active, key); return; }
+        if (engine === 'embed') { const value = String(key).replace(/[\u200b-\u200d\ufeff]/g, '').replace(/^\s*Bearer\s+/i, '').trim(); this.keyStore.save('embed', value); this.embedKey = value; this.emit('keys', { engine, configured: true }); return; }
         if (engine === 'nai' || engine === 'gpt') {
             this.assertImageIdle();
             const map = String(key).includes('\t') ? parseTextKeys(key) : new Map(this.imageKeys[engine]).set(this.settings.draw.connections[engine].active, validateKey(engine, key));
@@ -367,6 +374,7 @@ export class TTSBackend {
     clearKey(engine) {
         keyCheck(engine);
         if (engine === 'llm') { this.clearTextKey(this.settings.text.active); return; }
+        if (engine === 'embed') { this.keyStore.save('embed', ''); this.embedKey = ''; this.emit('keys', { engine, configured: false }); return; }
         if (engine === 'nai' || engine === 'gpt') { this.assertImageIdle(); const map = new Map(this.imageKeys[engine]); map.delete(this.settings.draw.connections[engine].active); this.storeImageKeys(engine, map); return; }
         this.keyStore.save(engine, '');
         this.providers.setKey(engine, ''); this.balances.delete(engine);
@@ -385,10 +393,10 @@ export class TTSBackend {
         return clone(value);
     }
     /** The last 4 characters of the saved key ('' without one), so the user can tell which key is in use. */
-    keyHint(engine) { keyCheck(engine); if (engine === 'nai' || engine === 'gpt') return keyTail(this.imageKeys[engine].get(this.settings.draw.connections[engine].active)); if (engine === 'llm') return this.textKeyHint(this.settings.text.active); return keyTail(this.providers.currentKey(engine)); }
+    keyHint(engine) { keyCheck(engine); if (engine === 'nai' || engine === 'gpt') return keyTail(this.imageKeys[engine].get(this.settings.draw.connections[engine].active)); if (engine === 'llm') return this.textKeyHint(this.settings.text.active); if (engine === 'embed') return this.embedKey ? keyTail(this.embedKey) || '••••' : ''; return keyTail(this.providers.currentKey(engine)); }
     /** For a voice engine with keys: how many, which one is in use (1-based) and how many were refused while this page is open. */
     keyPool(engine) { engineCheck(engine); return this.providers.keyPool(engine); }
-    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'gpt' ? !!this.gptKey : engine === 'llm' ? this.textKeys.has(this.settings.text.active) : this.providers.keys.has(engine); }
+    keyStatus(engine) { keyCheck(engine); return engine === 'nai' ? this.novelai.configured : engine === 'gpt' ? !!this.gptKey : engine === 'llm' ? this.textKeys.has(this.settings.text.active) : engine === 'embed' ? !!this.embedKey : this.providers.keys.has(engine); }
 
     // ---------- 钱包 and 商城 ----------
     wallet() { return clone(this.settings.chat.wallet); }
@@ -614,6 +622,29 @@ export class TTSBackend {
         if (!text.trim()) throw Error('模型没有返回内容（普通请求和流式请求都试过了）');
         return text;
     }
+    // ---------- 向量模型 and 记忆 ----------
+    saveEmbed(patch) { const next = this.getState(); next.embed = normalizeEmbed({ ...this.settings.embed, ...(patch && typeof patch === 'object' ? patch : {}) }); return this.save(next).embed; }
+    embedReady() { return embedReady(this.settings.embed); }
+    /** Vectors for texts with the 向量模型 (draft: options not saved yet, for 测试连接). */
+    embed(texts, draft = null) { const embed = draft ? normalizeEmbed({ ...this.settings.embed, ...draft, enabled: true }) : this.settings.embed; return embedTexts({ embed, key: this.embedKey, texts, fetch: this.embedFetch }); }
+    async embedModels(draft) {
+        const url = normalizeEmbed({ ...this.settings.embed, ...(draft || {}) }).url;
+        try { return await listModels({ text: { url }, key: this.embedKey }); } catch (error) { throw Error(error.message.replace(/^文字模型/, '向量模型')); }
+    }
+    /** A chat's memory book (an empty one when nothing is written yet). */
+    async memoryBook(threadId) { return (await this.memoryStore.get(bookId(threadId))) || emptyBook(threadId); }
+    /** Changes a chat's book in one transaction: change(book) returns the new book. Made first when missing. */
+    async memoryChange(threadId, change, name = '') {
+        this.assertOpen();
+        const id = bookId(threadId);
+        if (!await this.memoryStore.get(id)) await this.memoryStore.put([emptyBook(threadId, name)]);
+        const saved = await this.memoryStore.change(id, doc => { const next = cleanBook(change(structuredClone(doc)), Date.now()); for (const key of Object.keys(doc)) if (key !== 'scope') delete doc[key]; Object.assign(doc, next); });
+        this.emit('memory', { threadId });
+        return saved;
+    }
+    memoryVectors(threadId) { return this.memoryStore.get('vec:' + threadId); }
+    memorySaveVectors(threadId, doc) { return this.memoryStore.put([{ ...doc, id: 'vec:' + threadId, kind: 'vectors', threadId, at: Date.now() }]); }
+    async memoryForget(threadId) { await this.memoryStore.remove(bookId(threadId)); await this.memoryStore.remove('vec:' + threadId); this.emit('memory', { threadId }); }
     /** Model ids of the custom API (also a free connection check). `draft`: options not saved yet. */
     textModels(draft) { const text = activeText(this.textWith(draft)); return listModels({ text, key: this.textKeys.get(text.id) || '' }); }
 
@@ -1523,7 +1554,14 @@ export class TTSBackend {
             listThreads: () => this.threads(), getThread: id => this.chats.get(id), chatUnread: async () => (await this.threads()).reduce((n, t) => n + (t.muted ? 0 : t.unread), 0),
             createThread: value => this.chatMutate(null, () => this.chats.create({ ...clone(value), space: this.spaceKey() })),
             updateThread: (id, patch) => this.chatMutate(id, () => this.chats.update(id, clone(patch))),
-            deleteThread: id => this.chatMutate(id, () => this.chats.remove(id)),
+            deleteThread: id => this.chatMutate(id, async () => { const done = await this.chats.remove(id); await this.memoryForget(id).catch(() => {}); return done; }),
+            // 记忆: what a chat remembers; a summary can be corrected or deleted (what it covered is used again).
+            memoryBook: threadId => this.memoryBook(threadId),
+            memoryEdit: (threadId, nodeId, text) => { const value = String(text ?? '').trim(); if (value.length < 2) throw Error('写点内容再保存'); return this.memoryChange(threadId, book => { const node = book.nodes.find(n => n.id === nodeId); if (!node) throw Error('这条记忆已经不在了'); node.text = value; node.edited = true; return book; }); },
+            memoryRemove: (threadId, nodeId) => this.memoryChange(threadId, book => removeNode(book, nodeId)),
+            memoryForget: threadId => this.memoryForget(threadId),
+            saveEmbed: patch => this.saveEmbed(clone(patch)), embedReady: () => this.embedReady(), embedModels: draft => this.embedModels(clone(draft || {})),
+            embedTest: async draft => { const [v] = await this.embed(['测试一下向量模型'], clone(draft || {})); return v.length; },
             appendChat: (id, messages, options) => this.chatMutate(id, () => this.chats.append(id, clone(messages), clone(options || {}))),
             deleteChatMessages: (id, ids) => this.chatMutate(id, () => this.chats.removeMessages(id, clone(ids))),
             updateChatMessage: (id, messageId, patch) => this.chatMutate(id, () => this.chats.updateMessage(id, messageId, clone(patch || {}))),
@@ -1546,6 +1584,7 @@ export class TTSBackend {
         clearTimeout(this.syncTimer);
         this.moments.close();
         this.apps.close();
+        this.memoryStore.close();
         this.drawQueue.cancelAll();
         this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close(), Promise.resolve(this.keyStore.flush?.()).then(() => this.keyStore.close?.())]);
         await this.closing;

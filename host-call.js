@@ -12,7 +12,7 @@ const DAY_KEY = 'st-iphonie-calls-day';
 const today = () => new Date().toLocaleDateString('en-CA');
 
 // timing (tests only): ring(), pick() give milliseconds instead of settings().calls.ring and a few random rings.
-export function createCallHost({context, settings, backend, notice, ringing = () => {}, timing = {}}) {
+export function createCallHost({context, settings, backend, notice, ringing = () => {}, timing = {}, memory = null}) {
   let call = null, since = 0, ringTimer = 0, pickTimer = 0, seq = 0;
 
   const userName = () => context()?.name1 || '我';
@@ -43,7 +43,9 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
     const thread = await dmThread(c.name);
     const duration = c.answeredAt ? Math.round((c.endedAt - c.answeredAt) / 1000) : 0;
     const message = {from: c.dir === 'in' ? c.name : 'me', kind: 'call', dir: c.dir, state: c.ended.state, duration, lines: c.lines, voicemail};
-    return backend.chatMutate(thread.id, () => backend.chats.append(thread.id, [message], {read: !(c.dir === 'in' && c.ended.state === 'missed')}));
+    const saved = await backend.chatMutate(thread.id, () => backend.chats.append(thread.id, [message], {read: !(c.dir === 'in' && c.ended.state === 'missed')}));
+    memory?.after(thread.id);
+    return saved;
   }
 
   function start(name, dir, {reason = '', auto = false} = {}) {
@@ -124,8 +126,13 @@ export function createCallHost({context, settings, backend, notice, ringing = ()
     const voiceFormat = backend.voiceFormat(), story = storyLines(ctx.chat || [], preset.context, user);
     const lore = preset.lore === false ? '' : await worldInfoFor(context, {...loreOptions(preset), persona: userPersona(), characters: c.contact.persona || c.contact.card || '',
       texts: [c.name, c.reason, ...story.map(r => `${r.name}: ${r.text}`), ...history.map(m => messageLine(m, user)), ...c.lines.map(l => `${l.from === 'me' ? user : c.name}: ${l.translation || l.text}`)]});
+    // 记忆: looked up on the call's first turn (with why the call was made and the last chat) and kept for the call.
+    if (c.memory === undefined && memory && thread) {
+      const full = await backend.chats.get(thread.id);
+      c.memory = (await memory.contextFor(full, {query: [c.reason, ...history.slice(-4).map(m => messageLine(m, user))].filter(Boolean).join('\n')}).catch(() => ({text: ''}))).text;
+    }
     const prompt = buildCallRequest({preset, mode, contact: c.contact, lines: c.lines, history, story, user, userPersona: userPersona(),
-      voiceFormat, voiceRules: c.voiced ? modelRules(s, [c.name]) : '', reason: c.reason, lore});
+      voiceFormat, voiceRules: c.voiced ? modelRules(s, [c.name]) : '', reason: c.reason, lore, memory: c.memory || ''});
     const text = cleanTagged(await backend.generateText(ctx, {prompt, trimNames: false}), preset.cleanTags);
     return parseCallReply(text, {name: c.name, user, voiceFormat, voiced: c.voiced});
   }

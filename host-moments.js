@@ -6,7 +6,9 @@ import {inSpace, activeChatPreset, cleanTagged} from './core/chat.js';
 import {worldInfoFor, loreOptions} from './host-lore.js';
 import {pictureInputs} from './core/draw.js';
 
-export function createMomentsHost({context, settings, backend, notice}) {
+export function createMomentsHost({context, settings, backend, notice, memory = null}) {
+  // 记忆: what each of them talked about with the user in private (written-up layers only).
+  const remembered = names => memory ? memory.aboutPeople(names).catch(() => '') : Promise.resolve('');
   let busy = null, since = 0;
 
   const userName = () => context()?.name1 || '我';
@@ -50,7 +52,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
       const {s, preset, crowd, user, names} = base();
       const recent = (await backend.moments.list()).filter(p => inSpace(p, backend.here())).slice(0, 6);
       const story = storyLines(ctx.chat, preset.context, user);
-      const request = buildMomentsRequest({preset, mode: 'posts', people: crowd, story, user, userPersona: userPersona(), recent, images: s.moments.images, lore: await lore(preset, crowd, story, recent.map(p => `${p.author}: ${p.text}`))});
+      const request = buildMomentsRequest({preset, mode: 'posts', people: crowd, story, user, userPersona: userPersona(), recent, images: s.moments.images, memory: await remembered(crowd.map(p => p.name)), lore: await lore(preset, crowd, story, recent.map(p => `${p.author}: ${p.text}`))});
       const found = parseMoments(await ask(ctx, request), {names, user, mode: 'posts'});
       if (!found.posts.length) throw Error('这次没有收到新动态，可以再刷新一次');
       const posts = await backend.momentsMutate(() => backend.moments.add(found.posts.map(p => ({...p, space: backend.spaceKey(), source: auto ? 'auto' : 'manual', imageState: p.imageTags && s.moments.images ? 'waiting' : undefined}))));
@@ -65,7 +67,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
       const post = await backend.moments.get(postId);
       if (!post) throw Error('这条动态已经不在了');
       const story = storyLines(ctx.chat, preset.context, user);
-      const request = buildMomentsRequest({preset, mode: 'react', people: crowd, story, user, userPersona: userPersona(), post, lore: await lore(preset, crowd, story, [post.text])});
+      const request = buildMomentsRequest({preset, mode: 'react', people: crowd, story, user, userPersona: userPersona(), post, memory: await remembered(crowd.map(p => p.name)), lore: await lore(preset, crowd, story, [post.text])});
       const found = parseMoments(await ask(ctx, request), {names, user, mode: 'react'});
       return backend.momentsMutate(() => backend.moments.react(postId, found));
     });
@@ -77,7 +79,7 @@ export function createMomentsHost({context, settings, backend, notice}) {
       const post = await backend.moments.get(postId), comment = post?.comments.find(c => c.id === commentId);
       if (!post || !comment) throw Error('这条评论已经不在了');
       const story = storyLines(ctx.chat, preset.context, user);
-      const request = buildMomentsRequest({preset, mode: 'reply', people: crowd, story, user, userPersona: userPersona(), post, comment, lore: await lore(preset, crowd, story, [post.text, comment.text])});
+      const request = buildMomentsRequest({preset, mode: 'reply', people: crowd, story, user, userPersona: userPersona(), post, comment, memory: await remembered(crowd.map(p => p.name)), lore: await lore(preset, crowd, story, [post.text, comment.text])});
       const found = parseMoments(await ask(ctx, request), {names, user, mode: 'reply'});
       return backend.momentsMutate(() => backend.moments.react(postId, {comments: found.comments}));
     });

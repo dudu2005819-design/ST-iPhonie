@@ -40,7 +40,7 @@ export function callClock(seconds) {
  * picked up), 'reply' (the user said something), 'voicemail' (the user did not answer; the contact leaves a message).
  * contact: {name, persona, card, voice, language}; voiceRules: how this contact's lines are read (engine tags).
  */
-export function buildCallRequest({preset, mode, contact, lines = [], history = [], story = [], user = '我', userPersona = '', voiceFormat, voiceRules = '', reason = '', lore = ''}) {
+export function buildCallRequest({preset, mode, contact, lines = [], history = [], story = [], user = '我', userPersona = '', voiceFormat, voiceRules = '', reason = '', lore = '', memory = ''}) {
   const name = contact.name, voiced = !!contact.voice && !!voiceFormat;
   const spoken = languageName(contact.language || 'zh');
   const values = {'用户': user, '对象': name, '语音格式': voiceFormat || '', '可发语音': voiced ? `${name}（${spoken}）` : '（只说中文）'};
@@ -63,6 +63,7 @@ export function buildCallRequest({preset, mode, contact, lines = [], history = [
     lore.trim() ? `【世界书】（这些人物和这个世界的设定：人设、口音、方言、说话方式都按这里来）\n${lore.trim()}` : '',
     userPersona.trim() ? `【${user}】\n${userPersona.trim()}` : '',
     story.length ? `【最近的剧情】（只作背景参考）\n${story.map(s => `${s.name}：${s.text}`).join('\n')}` : '',
+    memory.trim(),
     history.length ? `【${name}和${user}最近的手机聊天】\n${history.map(m => messageLine(m, user)).filter(Boolean).join('\n')}` : '',
     `【现在】\n${situation}`,
     ['【输出格式】',

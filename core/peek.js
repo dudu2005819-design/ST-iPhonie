@@ -27,7 +27,7 @@ const unsaid = text => String(text).replace(/（[^（）]*）|\([^()]*\)/g, ' ')
  * story and the settings are written for the reader, who sees everything; the phone may only hold what its owner knows,
  * so the model first lists that and writes the rest from it.
  */
-export function buildPeekRequest({preset, person, story = [], user = '我', userPersona = '', history = [], lore = '', images = false}) {
+export function buildPeekRequest({preset, person, story = [], user = '我', userPersona = '', history = [], lore = '', images = false, memory = ''}) {
   const name = person.name;
   const rules = preset.entries.filter(e => e.enabled && e.text.trim() && (e.use || []).includes('peek')).map(e => fill(e.text, {'用户': user, '对象': name}));
   const said = story.map(s => ({...s, text: s.name === user ? unsaid(s.text) : s.text})).filter(s => s.text);
@@ -38,6 +38,7 @@ export function buildPeekRequest({preset, person, story = [], user = '我', user
     lore.trim() ? `【世界书】（这个世界和人物的设定，写给读者看的，${name}不一定都知道；人设、口音、方言、说话方式按这里来）\n${lore.trim()}` : '',
     userPersona.trim() ? `【${user}】（${user}自己的设定，里面可能有${name}不知道的事）\n${userPersona.trim()}` : '',
     said.length ? `【最近的剧情】（旁观的记录：读者看得到全部，${name}只经历了其中一部分）\n${said.map(s => `${s.name}：${s.text}`).join('\n')}` : '',
+    memory.trim() ? `${memory.trim()}\n（这是${name}和${user}自己聊过的事，${name}都知道）` : '',
     history.length ? `【${name}和${user}在手机上的聊天】（这是真的，${name}的手机里也有；不用再写这一段）\n${history.map(m => messageLine(m, user)).filter(Boolean).join('\n')}` : '',
     ['【' + name + '知道什么】',
       `手机是${name}自己的，里面只能有${name}知道的事：`,

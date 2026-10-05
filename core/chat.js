@@ -8,6 +8,7 @@ import {parseDialogue, isPlaceholderRole} from './protocol.js';
 import {money} from './chats.js';
 import {callSummary} from './call.js';
 import {languageName} from './languages.js';
+import {normalizeMemory} from './memory.js';
 
 export const CHAT_LIMITS = Object.freeze({contacts: 200, persona: 4000, story: 40, history: 200});
 
@@ -51,7 +52,7 @@ export function normalizeVoiceText(v = {}) {
 }
 
 export function defaultChat() {
-  return {presets: [structuredClone(DEFAULT_PRESET)], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}, profile: normalizeProfile(), starred: [], avatars: {}, partition: 'none', wallet: defaultWallet()};
+  return {presets: [{...structuredClone(DEFAULT_PRESET), memory: normalizeMemory()}], activePreset: 'default', contacts: [], voiceText: {...DEFAULT_VOICE_TEXT}, profile: normalizeProfile(), starred: [], avatars: {}, partition: 'none', wallet: defaultWallet()};
 }
 
 const text = (value, max) => String(value ?? '').slice(0, max);
@@ -107,6 +108,8 @@ export function normalizeChatPreset(p = {}) {
     cleanTags: tagList(p.cleanTags),
     bring: text(p.bring ?? DEFAULT_BRING, 4000),
     injection: {...DEFAULT_INJECTION, ...p.injection, depth: count(p.injection?.depth, 0, 10000, DEFAULT_INJECTION.depth)},
+    // 记忆: older chat written up in layers and searched (core/memory.js).
+    memory: normalizeMemory(p.memory),
     entries: entries.map(e => ({id: String(e.id || crypto.randomUUID()), title: text(e.title, 80), enabled: e.enabled !== false, text: text(e.text, 20000), use: ruleUse(e)}))
   };
 }
@@ -226,7 +229,7 @@ const fill = (template, values) => Object.entries(values).reduce((s, [k, v]) => 
  * members: [{name, persona, card, voice, language}] (card: the tavern character card text, when there is one)
  * story: [{name, text}] recent story messages, oldest first.
  */
-export function buildChatRequest({preset, thread, members, story = [], user = '我', userPersona = '', voiceFormat, lore = ''}) {
+export function buildChatRequest({preset, thread, members, story = [], user = '我', userPersona = '', voiceFormat, lore = '', memory = ''}) {
   const group = thread.type === 'group';
   const partner = group ? thread.name : members[0]?.name || thread.name;
   const speakers = members.filter(m => m.voice);
@@ -245,6 +248,7 @@ export function buildChatRequest({preset, thread, members, story = [], user = '�
     lore.trim() ? `【世界书】（这些人物和这个世界的设定：人设、口音、方言、说话方式都按这里来）\n${lore.trim()}` : '',
     userPersona.trim() ? `【${user}】\n${userPersona.trim()}` : '',
     story.length ? `【最近的剧情】（只作背景参考）\n${story.map(s => `${s.name}：${s.text}`).join('\n')}` : '',
+    memory.trim(),
     ['【输出格式】',
       `只输出新消息，每条消息单独一行，写成「名字：消息内容」。名字只能是：${names}。`,
       `不要写${user}的消息，不要写时间、编号、引号或任何解释。`,

@@ -5,7 +5,7 @@
 import {buildChatRequest, parseChatReply, bringText, plainStory, activeChatPreset, messageLine, cleanTagged} from './core/chat.js';
 import {worldInfoFor, loreOptions} from './host-lore.js';
 
-export function createChatHost({context, settings, backend, notice, onCall = () => {}}) {
+export function createChatHost({context, settings, backend, notice, memory = null, onCall = () => {}}) {
   const busy = new Map();
   let pending = null;
 
@@ -52,11 +52,16 @@ export function createChatHost({context, settings, backend, notice, onCall = () 
       // 世界书: scanned over who is in the chat, the recent story and the chat itself, as the story's own request would be.
       const lore = preset.lore === false ? '' : await worldInfoFor(context, {...loreOptions(preset), persona: userPersona(), characters: people.map(p => p.persona || p.card).join('\n'),
         texts: [people.map(p => p.name).join('、'), ...recent.map(r => `${r.name}: ${r.text}`), ...thread.messages.slice(-preset.history).map(m => messageLine(m, user))]});
-      const prompt = buildChatRequest({preset, thread, members: people, story: recent, user, userPersona: userPersona(), voiceFormat, lore});
+      // 记忆: the written-up older chat, and older messages that match the latest ones.
+      const query = thread.messages.filter(m => m.kind !== 'system').slice(-6).map(m => messageLine(m, user)).join('\n');
+      const remembered = memory ? (await memory.contextFor(thread, {query}).catch(() => ({text: ''}))).text : '';
+      const prompt = buildChatRequest({preset, thread, members: people, story: recent, user, userPersona: userPersona(), voiceFormat, lore, memory: remembered});
       const text = cleanTagged(await backend.generateText(ctx, {prompt, trimNames: false}), preset.cleanTags);
       const items = parseChatReply(text, {members: people, user, voiceFormat, voiceNames: people.filter(p => p.voice).map(p => p.name)});
       if (!items.length) throw Error('这次没有收到消息，可以再试一次');
-      return backend.chatMutate(threadId, () => settle(threadId, items));
+      const saved = await backend.chatMutate(threadId, () => settle(threadId, items));
+      memory?.after(threadId);
+      return saved;
     })().finally(() => { busy.delete(threadId); backend.emit('chat', {threadId, typing: false}); });
     busy.set(threadId, job);
     return job;

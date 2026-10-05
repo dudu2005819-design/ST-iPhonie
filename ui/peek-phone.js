@@ -71,7 +71,7 @@ export function peekPhone(ctx, {host, snap, canDraw, draw, photo, view, close}) 
   layer.setAttribute('role', 'dialog');
   layer.setAttribute('aria-label', `${snap.name} 的手机`);
   // page: lock | home | messages | thread | photos | photo | notes | note | browser | cart
-  let page = 'lock', item = -1, closed = false, enter = 'pp-in';
+  let page = 'lock', item = -1, closed = false, enter = 'pp-anim-in';
   const battery = 18 + hash(snap.name + snap.at) % 80;
   const own = l => l.from === snap.name;
   const unread = c => { let n = 0; for (let i = c.lines.length - 1; i >= 0 && !own(c.lines[i]); i--) n++; return n; };
@@ -188,12 +188,12 @@ export function peekPhone(ctx, {host, snap, canDraw, draw, photo, view, close}) 
   }
   // Pictures load after the page is drawn; a phone closed meanwhile (or a backend gone) just leaves them out.
   const repaint = () => { paint().catch(() => {}); };
-  function go(next, index = -1, how = 'pp-open') { page = next; item = index; enter = how; repaint(); layer.scrollTop = 0; }
+  function go(next, index = -1, how = 'pp-anim-open') { page = next; item = index; enter = how; repaint(); layer.scrollTop = 0; }
   function shake(el) { el.classList.remove('pp-shake'); void el.offsetWidth; el.classList.add('pp-shake'); }
   function back() {
     if (closed) return false;
     const up = {thread: 'messages', photo: 'photos', note: 'notes', messages: 'home', photos: 'home', notes: 'home', browser: 'home', cart: 'home', home: 'lock'}[page];
-    if (up) go(up, -1, up === 'lock' ? 'pp-down' : 'pp-back');
+    if (up) go(up, -1, up === 'lock' ? 'pp-anim-down' : 'pp-anim-back');
     else done();
     return true;
   }
@@ -205,10 +205,10 @@ export function peekPhone(ctx, {host, snap, canDraw, draw, photo, view, close}) 
     event.preventDefault(); event.stopPropagation();
     const index = Number(el.dataset.index);
     switch (el.dataset.pp) {
-      case 'unlock': go('home', -1, 'pp-unlock'); break;
-      case 'notice': go('thread', index, 'pp-unlock'); break;
+      case 'unlock': go('home', -1, 'pp-anim-unlock'); break;
+      case 'notice': go('thread', index, 'pp-anim-unlock'); break;
       case 'put': done(); break;
-      case 'home': page === 'home' ? go('lock', -1, 'pp-down') : go('home', -1, 'pp-back'); break;
+      case 'home': page === 'home' ? go('lock', -1, 'pp-anim-down') : go('home', -1, 'pp-anim-back'); break;
       case 'back': back(); break;
       case 'open': go(el.dataset.id); break;
       case 'shake': shake(el.querySelector('.pp-tile') || el); break;

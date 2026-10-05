@@ -10,7 +10,9 @@ export function enginesApp(ctx) {
   let comfyInfo = null, comfyRequest = 0;
   // The wallet is a stack: the last card is the one in front. A tap on another card draws it to the front; a tap on
   // the front card opens it.
-  let order = ['llm', ...Object.keys(engines), 'comfy', 'gpt', 'nai'];
+  let order = ['embed', 'llm', ...Object.keys(engines), 'comfy', 'gpt', 'nai'];
+  // 向量模型 being edited (not saved yet).
+  let embedDraft = null, embedModels = [];
   const IMAGE = ['nai', 'gpt', 'comfy'];
   // Voice balances shown on the ElevenLabs and Fish cards: engine -> {value, error, loading}.
   const balances = new Map(), PRICED = ['eleven', 'fish'];
@@ -45,11 +47,13 @@ export function enginesApp(ctx) {
   };
   /** The text model preset being edited (the draft's active one). */
   const textPreset = () => textDraft.presets.find(p => p.id === textDraft.active) || textDraft.presets[0];
-  const nameOf = id => id === 'nai' ? 'NovelAI' : id === 'gpt' ? 'GPT 生图' : id === 'comfy' ? 'ComfyUI' : id === 'llm' ? '文字模型' : engines[id];
+  const nameOf = id => id === 'nai' ? 'NovelAI' : id === 'gpt' ? 'GPT 生图' : id === 'comfy' ? 'ComfyUI' : id === 'llm' ? '文字模型' : id === 'embed' ? '向量模型' : engines[id];
   function card(id, tag = 'button') {
-    const comfy = id === 'comfy', saved = comfy ? !!api.getState().draw.comfy.url : api.keyStatus(id), nai = id === 'nai', llm = id === 'llm', d = api.getState().draw;
+    const comfy = id === 'comfy', saved = comfy ? !!api.getState().draw.comfy.url : api.keyStatus(id), nai = id === 'nai', llm = id === 'llm', vector = id === 'embed', d = api.getState().draw;
+    const em = vector ? (engine === 'embed' && embedDraft ? embedDraft : api.getState().embed) : null;
     const name = nameOf(id), t = llm ? (engine === 'llm' && textDraft ? textDraft : api.getState().text) : null, custom = t?.source === 'custom';
-    const fields = id === 'gpt' ? [['MODEL', d.gpt.model], ['QUALITY', d.gpt.quality.toUpperCase()]]
+    const fields = vector ? [['MODEL', em.model || '未填写'], ['MEMORY', em.enabled ? '语义检索' : '本地检索']]
+      : id === 'gpt' ? [['MODEL', d.gpt.model], ['QUALITY', d.gpt.quality.toUpperCase()]]
       : comfy ? [['MODEL', d.comfy.model ? d.comfy.model.replace(/\.[^.]*$/, '').slice(0, 18) : '未选'], ['WORKFLOW', d.comfy.workflows.find(p => p.id === d.comfy.activeWorkflow)?.name || '默认工作流']]
       : llm
       ? [['SOURCE', custom ? 'CUSTOM API' : 'TAVERN'], ['MODEL', custom ? t.presets.find(p => p.id === t.active)?.model || '未填写' : '跟随酒馆']]
@@ -61,9 +65,9 @@ export function enginesApp(ctx) {
     const front = order.at(-1) === id;
     const attrs = tag === 'button' ? `data-action="engine" data-engine="${id}" aria-label="${name}，${front ? '点一下打开' : '点一下抽到最前面'}"` : `data-engine="${id}"`;
     const dots = comfy ? '' : `•••• •••• •••• ${api.keyHint?.(id) || '••••'}`;
-    const number = comfy ? d.comfy.url.replace(/^https?:\/\//, '') : llm ? (custom ? (saved ? dots : '未绑定密钥 · 点卡片去填写') : '用酒馆当前连接的模型') : saved ? dots : '未绑定密钥 · 点卡片去填写';
+    const number = vector ? (em.enabled ? (saved ? dots : '未绑定密钥 · 本地接口可以不填') : '没开 · 记忆用本地检索') : comfy ? d.comfy.url.replace(/^https?:\/\//, '') : llm ? (custom ? (saved ? dots : '未绑定密钥 · 点卡片去填写') : '用酒馆当前连接的模型') : saved ? dots : '未绑定密钥 · 点卡片去填写';
     return `<${tag} class="bank-card${tag === 'div' ? ' detail-card' : ''}" ${attrs}>${spark()}
-      <span class="card-top"><span class="card-name">${name}</span><span class="card-kind">${IMAGE.includes(id) ? 'IMAGE' : llm ? 'TEXT' : 'VOICE'}${icon('nfc')}</span></span>
+      <span class="card-top"><span class="card-name">${name}</span><span class="card-kind">${IMAGE.includes(id) ? 'IMAGE' : llm ? 'TEXT' : vector ? 'VECTOR' : 'VOICE'}${icon('nfc')}</span></span>
       <span class="card-chip"></span>
       <span class="card-number${number.startsWith('•') || comfy ? '' : ' none'}${comfy ? ' address' : ''}">${number}</span>
       <span class="card-bottom">${fields.map(([k, value]) => `<span><span class="k">${k}</span><span class="v">${esc(value)}</span></span>`).join('')}<span class="card-brand">ST-iPhonie</span></span></${tag}>`;
@@ -321,6 +325,26 @@ export function enginesApp(ctx) {
       + `<div class="savebar"><span class="save-state" data-save-state>${dirty ? '未保存' : '已保存'}</span>${btn('save-connection', '保存配置', 'primary')}</div>`);
   }
 
+  /** 向量模型: an OpenAI-compatible Embeddings API for 记忆 (core/embed.js). Off: 记忆 searches locally. */
+  function renderEmbed() {
+    const e = embedDraft, hint = api.keyHint('embed'), saved = !!hint;
+    v.root.dataset.engine = 'embed';
+    v.draw(heading('向量模型', '', 'Vector Card')
+      + card('embed', 'div')
+      + groupTitle('做什么用', help('聊天的「记忆」会按最近几句话，从更早的聊天原话里找出相关的几段一起带给模型。\n不开：在本地按字词找，人名、地名、说过的原话找得准，不花钱。\n开了：用 Embedding 模型按意思找（比如“上次吵架”能找到没出现“吵架”两个字的那段），每次回消息多一次很便宜的 Embedding 请求；第一次会给旧聊天建索引，之后只算新的。'))
+      + `<div class="group pad">${toggle('embed-enabled', '记忆用向量模型找旧聊天', e.enabled)}</div>`
+      + groupTitle('连接') + `<div class="group pad">
+          ${field('接口地址', input('embed-url', e.url, 'url', 'autocomplete="off" placeholder="https://api.siliconflow.cn/v1"'), '填到 /v1 为止，后面的 /embeddings 不用写。OpenAI 格式的 Embedding 接口都可以：OpenAI、硅基流动（有免费的 BAAI/bge-m3）、各种中转站、本地的 Ollama。接口要允许网页直接访问（CORS）。')}
+          <div class="setting-row"><span>密钥</span><span class="key-state ${saved ? 'ok' : 'no'}">${saved ? `已保存，末尾 ${esc(hint)}` : '还没有填写'}</span></div>
+          ${field('API Key', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新密钥可替换' : '这个接口的密钥（本地接口可以不填）'}"`), '密钥只保存在当前浏览器和酒馆地址，不会写进设置或备份。')}
+          <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
+          ${field('模型', input('embed-model', e.model, 'text', 'autocomplete="off" placeholder="例如 text-embedding-3-small、BAAI/bge-m3"'), '要选 Embedding 模型（名字里常有 embed、bge、e5），聊天模型用不了。换模型后旧聊天会重新建索引。')}
+          <div class="actions">${btn('embed-models', icon('refresh') + '读取模型列表', 'secondary')}${btn('embed-test', icon('eye') + '测试一下', 'secondary')}</div>
+          <div class="combo-menu model-list" data-model-list ${embedModels.length ? '' : 'hidden'}>${embedModels.map(m => `<button type="button" class="combo-chip" data-action="embed-pick" data-model="${esc(m)}" aria-pressed="${m === e.model}">${esc(m)}</button>`).join('')}</div>
+          <p class="hint" data-text-status></p>
+        </div>`
+      + `<div class="savebar"><span class="save-state" data-save-state>${dirty ? '未保存' : '已保存'}</span>${btn('save-embed', '保存', 'primary')}</div>`);
+  }
   /** 文字模型: the tavern's model, or an OpenAI-compatible API of the user's own. */
   function renderText() {
     const all = textDraft, t = textPreset(), hint = api.textKeyHint?.(t.id) || '', saved = !!hint, custom = all.source === 'custom';
@@ -349,11 +373,12 @@ export function enginesApp(ctx) {
       + `<div class="savebar"><span class="save-state" data-save-state>${dirty ? '未保存' : '已保存'}</span>${btn('save-text', '保存', 'primary')}</div>`);
   }
 
-  const render = () => engine === 'nai' ? renderNovelAI() : engine === 'gpt' ? renderGpt() : engine === 'comfy' ? renderComfy() : engine === 'llm' ? renderText() : engine ? renderDetail() : renderList();
+  const render = () => engine === 'nai' ? renderNovelAI() : engine === 'gpt' ? renderGpt() : engine === 'comfy' ? renderComfy() : engine === 'llm' ? renderText() : engine === 'embed' ? renderEmbed() : engine ? renderDetail() : renderList();
   function edit(id) {
     engine = id;
     if (!order.length || order.at(-1) !== id) order = [...order.filter(x => x !== id), id];
     if (id === 'llm') { textDraft = structuredClone(api.getState().text); dirty = false; render(); v.root.scrollTop = 0; return; }
+    if (id === 'embed') { embedDraft = structuredClone(api.getState().embed); embedModels = []; dirty = false; render(); v.root.scrollTop = 0; return; }
     if (id === 'nai') { render(); v.root.scrollTop = 0; loadSubscription(false); return; }
     if (id === 'gpt' || id === 'comfy') { render(); v.root.scrollTop = 0; return; }
     if (!drafts.has(id)) drafts.set(id, structuredClone(api.getState().connections[id]));
@@ -369,6 +394,13 @@ export function enginesApp(ctx) {
   v.on('change', '[data-field]', el => {
     if (el.dataset.field === 'key') return;
     if (el.dataset.field === 'image-name') return;
+    if (engine === 'embed') {
+      const key = el.dataset.field.replace(/^embed-/, '');
+      if (!['enabled', 'url', 'model'].includes(key)) return;
+      embedDraft[key] = el.type === 'checkbox' ? el.checked : el.value.trim();
+      changed();
+      return;
+    }
     if (engine === 'llm') {
       const key = el.dataset.field.replace(/^text-/, '');
       if (!['name', 'url', 'model', 'temperature', 'maxTokens'].includes(key)) return;
@@ -451,6 +483,38 @@ export function enginesApp(ctx) {
         break;
       }
       case 'save-text': api.saveText(textDraft); textDraft = structuredClone(api.getState().text); dirty = false; render(); ctx.notify('文字模型已保存'); break;
+      case 'save-embed': {
+        const typed = v.root.querySelector('[data-field=key]')?.value || '';
+        if (typed.trim()) api.setKey('embed', typed);
+        api.saveEmbed(embedDraft); embedDraft = structuredClone(api.getState().embed); dirty = false; render(); ctx.notify('向量模型已保存');
+        break;
+      }
+      case 'embed-pick': {
+        embedDraft.model = el.dataset.model;
+        const box = v.root.querySelector('[data-field=embed-model]');
+        if (box) box.value = embedDraft.model;
+        for (const chip of v.root.querySelectorAll('[data-action=embed-pick]')) chip.setAttribute('aria-pressed', String(chip === el));
+        changed();
+        break;
+      }
+      case 'embed-models': case 'embed-test': {
+        const status = () => v.root.querySelector('[data-text-status]'), typed = v.root.querySelector('[data-field=key]')?.value || '';
+        if (typed.trim()) { api.setKey('embed', typed); }
+        await v.busy(el, async () => {
+          try {
+            if (el.dataset.action === 'embed-models') {
+              const all = await api.embedModels(embedDraft), likely = all.filter(m => /embed|bge|e5[-_]|gte|jina|m3e|text2vec/i.test(m) && !/rerank/i.test(m));
+              embedModels = likely.length ? likely : all;
+              render();
+              if (status()) status().textContent = embedModels.length ? `读到 ${all.length} 个模型${likely.length ? `，其中 ${likely.length} 个像 Embedding 模型` : ''}，点一个就能选上` : '连接成功，但这个接口没有列出模型，直接填写模型名就好';
+            } else {
+              const size = await api.embedTest(embedDraft);
+              if (status()) status().textContent = `成功：这个模型把一句话变成了 ${size} 维的向量。记得点「保存」。`;
+            }
+          } catch (error) { if (status()) status().textContent = error.message; }
+        });
+        break;
+      }
       case 'text-pick': {
         textPreset().model = el.dataset.model;
         const box = v.root.querySelector('[data-field=text-model]');
@@ -478,7 +542,7 @@ export function enginesApp(ctx) {
         if (typed.trim()) loadBalance(engine, true);
         break;
       }
-      case 'save-key': if (engine === 'nai' || engine === 'gpt') { saveImageForm(); break; } if (engine === 'llm') { api.setTextKey(textDraft.active, v.root.querySelector('[data-field=key]').value); render(); ctx.notify('密钥已保存'); break; } api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); loadBalance(engine, true); break;
+      case 'save-key': if (engine === 'nai' || engine === 'gpt') { saveImageForm(); break; } if (engine === 'embed') { api.setKey('embed', v.root.querySelector('[data-field=key]').value); render(); ctx.notify('密钥已保存'); break; } if (engine === 'llm') { api.setTextKey(textDraft.active, v.root.querySelector('[data-field=key]').value); render(); ctx.notify('密钥已保存'); break; } api.setKey(engine, v.root.querySelector('[data-field=key]').value); balances.delete(engine); render(); ctx.notify('密钥已保存'); loadBalance(engine, true); break;
       case 'refresh-subscription': await v.busy(el, () => loadSubscription(true)); break;
       case 'save-relay': {
         saveImageForm();
@@ -527,7 +591,8 @@ export function enginesApp(ctx) {
         api.removeKey(engine, index); balances.delete(engine); render(); ctx.notify('已删除'); loadBalance(engine, true);
         break;
       }
-      case 'clear-key': if (engine === 'llm') { if (await ctx.confirm('清除这套接口的密钥？', '其他接口预设的密钥不受影响。')) { api.clearTextKey(textDraft.active); render(); } break; }
+      case 'clear-key': if (engine === 'embed') { if (await ctx.confirm('清除向量模型的密钥？', '之后用向量模型需要重新填写。')) { api.clearKey('embed'); render(); } break; }
+        if (engine === 'llm') { if (await ctx.confirm('清除这套接口的密钥？', '其他接口预设的密钥不受影响。')) { api.clearTextKey(textDraft.active); render(); } break; }
         if (engine === 'nai' || engine === 'gpt') { if (await ctx.confirm('清除这组连接的密钥？', '其他连接的密钥保留，这组之后需要重新填写。')) { api.clearKey(engine); imageSaved(); } break; }
         if (await ctx.confirm(['nai', 'gpt'].includes(engine) ? '清除密钥？' : '清除全部密钥？', '之后使用这个引擎需要重新填写。')) { api.clearKey(engine); if (engine === 'nai') subscription = null; balances.delete(engine); render(); } break;
       case 'reveal-key': {

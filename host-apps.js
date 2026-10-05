@@ -9,7 +9,7 @@ import {pictureInputs, sizeFor} from './core/draw.js';
 
 const PEOPLE = 12;
 
-export function createAppsHost({context, settings, backend}) {
+export function createAppsHost({context, settings, backend, memory = null}) {
   const busy = {forum: null, peek: null};
   const userName = () => context()?.name1 || '我';
   const userPersona = () => String(context()?.powerUserSettings?.persona_description || '').slice(0, 1500);
@@ -87,7 +87,8 @@ export function createAppsHost({context, settings, backend}) {
       const thread = (await backend.threads()).find(t => t.type === 'dm' && t.members[0] === name);
       const history = thread ? (await backend.chats.get(thread.id)).messages.filter(m => m.kind !== 'system').slice(-20) : [];
       const story = storyLines(ctx.chat, preset.context, user);
-      const prompt = buildPeekRequest({preset, person, story, user, userPersona: userPersona(), history, images: !!backend.drawReady(), lore: await lore(preset, [person], story, history.map(m => m.text || ''))});
+      const remembered = memory ? await memory.aboutPeople([name]).catch(() => '') : '';
+      const prompt = buildPeekRequest({preset, person, story, user, userPersona: userPersona(), history, memory: remembered, images: !!backend.drawReady(), lore: await lore(preset, [person], story, history.map(m => m.text || ''))});
       const found = parsePeek(await ask(ctx, prompt, preset), {name, user});
       return backend.savePeek({name, ...found});
     });

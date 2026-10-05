@@ -105,6 +105,19 @@ export function presetsApp(ctx) {
     d.body.addEventListener('click', e => { if (e.target.matches('summary .switch')) e.stopPropagation(); }, true);
     d.onClose(() => render());
   }
+  /** 记忆 of the phone chats (core/memory.js): the switch and how it is written up and searched. */
+  function memoryFields(p) {
+    const m = p.memory || {}, on = m.enabled !== false;
+    const num = (key, label, value, min, max, note) => field(label, input('memory.' + key, value, 'number', `min="${min}" max="${max}" step="1"`), note);
+    return `<details data-group="preset-memory"><summary>记忆 ${help('聊得久了，最近几十条之外的消息模型就看不到了。打开记忆后，更早的消息会自动整理成摘要，摘要多了再合成阶段总结、长期总览（每整理一次调用一次文字模型）；回消息、打电话、查手机和朋友圈都会带上。每段聊天的记忆在右上角菜单 → 记忆 里看和改。')}</summary><div class="group pad">
+      ${toggle('memory.enabled', '记住更早的聊天', on)}
+      ${on ? num('batch', '每次整理多少条', m.batch ?? 40, 10, 200, '「读取聊天记录」那么多条之外的消息，攒够这么多条整理成一段聊天摘要。')
+        + num('stage', '几段摘要合成一份阶段总结', m.stage ?? 5, 2, 20, '')
+        + num('epic', '几份总结再合成长期总览', m.epic ?? 4, 2, 20, '长期总览也会继续往上合，记忆再长也不会越带越多。')
+        + num('recall', '每次想起几段旧聊天', m.recall ?? 3, 0, 10, '按最近几句话，从更早的原话里找出最相关的几段一起带上（0 不找）。默认在本地找，不花钱；在「引擎 → 向量模型」里填了 Embedding 接口后按意思找，更准。')
+        + toggle('memory.story', '正文也带上手机里的事', m.story === true, '写正文时，把你和当前角色卡里的角色在手机上聊过的事（记忆和最近 10 条聊天）告诉模型，插在「带进剧情」的位置。会多占一些正文的上下文。') : ''}
+    </div></details>`;
+  }
   function renderEditor() {
     const p = current, o = ops(currentKind), draw = currentKind === 'draw', chat = currentKind === 'chat';
     const used = p.id && p.id === o.active();
@@ -114,6 +127,7 @@ export function presetsApp(ctx) {
         : draw
         ? `${field('每条回复出图数量', input('count', p.count ?? 1, 'number', `min="1" max="${api.drawCountMax}" step="1"`), '每条回复固定出这么多张图。规则里写 {{出图数量}} 会换成这个数字；插件还会在规则最后加一段硬性要求，让张数更稳定。张数越多，出图越久。')}<div class="field"><span>出图块格式${help('规则里写 {{出图格式}} 会换成下面这段（回复后单独配图时，还会多一行「位置」）；{{角色列表}} 会换成已登记的角色和他们的固定外貌；{{出图数量}} 换成张数。别的插件要排除出图内容时，排除标签填 <img></img>。')}</span><pre class="code-preview" style="margin:0">${esc(api.picTagFormat)}</pre></div>`
         : field('台词格式', textArea('format', p.format, 'class="code"'), '{译文}、{角色}、{情绪}、{文本} 各保留一次。译文供阅读，原语言供语音生成。默认格式是成对的 <tts></tts>，别的插件要排除语音原文时，排除标签填 <tts></tts>。')}</div>
+        ${chat ? memoryFields(p) : ''}
         <details data-group="preset-injection"><summary>${chat ? '带进剧情的插入位置' : '默认插入设置'} ${help(chat ? '带进剧情的文字插在正文请求的哪里。深度与身份仅在聊天内插入时生效。' : '深度与身份仅在聊天内插入时生效；条目可以单独覆盖。')}</summary><div>${injection(p.injection)}</div></details>
         ${groupTitle(draw ? '出图规则' : chat ? '聊天与朋友圈规则' : '提示词条目', btn('add-entry', icon('add') + '条目', 'chip-button'))}
         ${p.entries.map((e, i) => `<details data-group="entry:${esc(e.id)}" ${i === 0 ? 'open' : ''}><summary>${esc(e.title || '未命名条目')}${draw ? esc(engineScope(e)) : ''}${e.enabled ? '' : ' · 已停用'}</summary><div data-entry="${i}">
@@ -151,7 +165,8 @@ export function presetsApp(ctx) {
       const entry = current.entries[Number(index)];
       if (key === 'customInjection') { if (el.checked) entry.injection = structuredClone(current.injection); else delete entry.injection; }
       else entry[key] = el.type === 'checkbox' ? el.checked : el.value;
-    } else current[key] = el.type === 'checkbox' ? el.checked : el.value;
+    } else if (key.startsWith('memory.')) { current.memory = {...current.memory}; current.memory[key.slice(7)] = el.type === 'checkbox' ? el.checked : Number(el.value); }
+    else current[key] = el.type === 'checkbox' ? el.checked : el.value;
     mark();
     if (redraw) render();
   }
