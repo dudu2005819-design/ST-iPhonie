@@ -284,17 +284,19 @@ export function defaultDraw() {
 /** Connection presets contain no secrets. Legacy single connections become the default preset. */
 export function normalizeImageConnections(engine, value, legacy = {}) {
   const rows = Array.isArray(value?.presets) && value.presets.length ? value.presets : [{...legacy, id: 'default', name: '默认连接'}];
-  if (rows.length > 50) throw Error('每个生图引擎最多保存 50 组连接');
-  const ids = new Set();
-  const presets = rows.map(row => {
-    const id = String(row?.id || '');
-    if (!/^[\w-]{1,64}$/.test(id) || ids.has(id)) throw Error('生图连接编号无效或重复');
+  const ids = new Set(), presets = [];
+  // Repaired, never refused: a broken or repeated id gets a new one (its saved key, kept by id, is not found again).
+  for (const row of rows.slice(0, 50)) {
+    if (!row || typeof row !== 'object') continue;
+    let id = String(row.id || '');
+    if (!/^[\w-]{1,64}$/.test(id) || ids.has(id)) id = crypto.randomUUID();
     ids.add(id);
     const name = String(row.name || '未命名连接').trim().slice(0, 60) || '未命名连接';
-    if (engine === 'gpt') { const g = normalizeGpt(row); return {id, name, url: g.url, model: g.model}; }
-    return {id, name, url: relayUrl(row.url, ''), assumeOpus: !!row.assumeOpus};
-  });
-  return {active: ids.has(value?.active) ? value.active : presets[0].id, presets};
+    if (engine === 'gpt') { const g = normalizeGpt(row); presets.push({id, name, url: g.url, model: g.model}); }
+    else { let url = ''; try { url = relayUrl(row.url, ''); } catch { /* an address that does not read: straight to NovelAI */ } presets.push({id, name, url, assumeOpus: !!row.assumeOpus}); }
+  }
+  if (!presets.length) presets.push(engine === 'gpt' ? {id: 'default', name: '默认连接', url: '', model: 'gpt-image-1'} : {id: 'default', name: '默认连接', url: '', assumeOpus: false});
+  return {active: presets.some(p => p.id === value?.active) ? value.active : presets[0].id, presets};
 }
 
 /** Keep the existing drawing callers reading the selected connection's public fields. */

@@ -1,85 +1,100 @@
-import {esc, btn, help, groupTitle} from './common.js';
+// The LoRAs of the ComfyUI scheme in use, one row each: a switch (in this picture or not), the strength and, for a
+// full LoraLoader, how much it changes the reading of the prompt. Changed in place and saved at once.
+import {esc, btn, field, input, select, help, groupTitle} from './common.js';
 import {icon} from './icons.js';
-import {editComfyLoras} from './comfy-loras.js';
 
-const shortName = file => String(file || 'LoRA').split(/[\\/]/).pop().replace(/\.(safetensors|ckpt|pt)$/i, '');
-const art = () => `<span class="vibe-blank lora-art">${icon('layers')}<b>LoRA</b></span>`;
+export const shortLora = file => String(file || 'LoRA').split(/[\\/]/).pop().replace(/\.(safetensors|ckpt|pt|bin)$/i, '');
+const amount = value => { const n = Number(value); return Number.isFinite(n) ? n : 1; };
 
-/** Same gallery interaction as Vibe, backed by the current workflow draft. */
-export function comfyLoraPanel({ctx, api, root, rerender}) {
-  let names = [], query = '', loaded = false, loading = false, error = '', connection = '', request = 0, controller, editor, disposed = false;
-  const connectionKey = () => { const c = api.getState().draw.comfy; return JSON.stringify([c.url, c.loraTransport]); };
-  function syncConnection() {
-    const key = connectionKey();
-    if (key !== connection) { connection = key; request++; controller?.abort(); names = []; loaded = loading = false; error = ''; }
+export function comfyLoraPanel({ctx, api, rerender}) {
+  // LoRA files read from ComfyUI (shared by every 添加 sheet while the app is open).
+  let names = [], loaded = false, request = 0, controller = null, armed = '', disposed = false;
+  function row(n, off) {
+    const name = esc(shortLora(n.name));
+    if (n.reason) return `<div class="lora-row locked"><div class="lora-head"><strong title="${esc(n.name)}">${name}</strong></div><p class="hint error-copy">${esc(n.reason)}</p></div>`;
+    // −2 to 2 covers nearly every LoRA; a workflow's own stronger value widens the range instead of being cut down.
+    const slider = (key, label, value) => `<label class="lora-strength"><span>${label}</span><input class="slider" type="range" min="${Math.min(-2, Math.floor(amount(value)))}" max="${Math.max(2, Math.ceil(amount(value)))}" step="0.05" value="${amount(value)}" data-lora-strength="${key}" data-id="${esc(n.id)}" aria-label="${name} ${label}"${off ? ' disabled' : ''}><output>${amount(value)}</output></label>`;
+    return `<div class="lora-row${off ? ' off' : ''}">
+      <div class="lora-head"><input type="checkbox" class="switch" data-lora-toggle="${esc(n.id)}" ${off ? '' : 'checked'} aria-label="使用 ${name}"><strong title="${esc(n.name)}">${name}</strong>${btn('lora-remove', armed === n.id ? '再点移除' : icon('trash'), 'text-button', `data-id="${esc(n.id)}" aria-label="从方案里移除 ${name}"`)}</div>
+      ${slider('strength_model', '强度', n.strength_model)}${n.modelOnly ? '' : slider('strength_clip', '文字', n.strength_clip)}
+    </div>`;
   }
-  const matches = name => !query || String(name).toLowerCase().includes(query.trim().toLowerCase());
-  function tile({name, id, using, note, installed = false}) {
-    return `<button type="button" class="vibe-tile lora-tile${using ? ' using' : ''}" data-action="${installed ? 'lora-catalog-open' : 'lora-open'}" ${installed ? `data-file="${esc(name)}"` : `data-id="${esc(id)}"`} data-lora-name="${esc(name)}" ${matches(name) ? '' : 'hidden'} aria-label="${esc(name)}" title="${esc(name)}">
-      ${art()}<span class="vibe-name">${esc(shortName(name))}</span><small>${esc(note)}</small></button>`;
+  function html(info) {
+    if (!info) return '';
+    const off = new Set(info.disabled), using = info.nodes.filter(n => !off.has(n.id)).length;
+    return groupTitle(`LoRA · ${using}/${info.nodes.length} 在用`, help('每行一个 LoRA。开关决定这次画不画进去，关掉的仍留在方案里；「强度」是对画面的影响，「文字」是对提示词理解的影响，1 是原样，0 是没有。改动马上保存进正在用的方案。'))
+      + (info.error ? `<p class="hint error-copy">${esc(info.error)}</p>` : '')
+      + (info.nodes.length ? `<div class="group pad lora-list">${info.nodes.map(n => row(n, off.has(n.id))).join('')}</div>` : '<p class="hint">这套方案里还没有 LoRA。</p>')
+      + `<div class="actions">${btn('lora-add', icon('add') + '添加 LoRA', 'secondary', info.error ? 'disabled' : '')}</div>`;
   }
-  function html() {
-    syncConnection();
-    const d = api.getComfyDraft(), nodes = d.loras.nodes, active = nodes.filter(n => !d.value.disabledLoras.includes(n.id));
-    const current = nodes.map(n => tile({name: n.name, id: n.id, using: !d.value.disabledLoras.includes(n.id), note: n.reason ? '查看限制' : d.value.disabledLoras.includes(n.id) ? '已停用' : `强度 ${n.strength_model}`})).join('');
-    const available = names.map(name => tile({name, installed: true, using: active.some(n => n.name === name), note: nodes.some(n => n.name === name) ? '已在方案中' : '点开添加'})).join('');
-    return `
-      ${(names.length + nodes.length > 8 || query) ? `<div class="vibe-search">${icon('search')}<input type="search" data-lora-search value="${esc(query)}" placeholder="搜索 LoRA" aria-label="搜索 LoRA"></div>` : ''}
-      ${groupTitle(`方案里的 LoRA · ${active.length}/${nodes.length} 启用`, help('亮框表示启用。点卡片打开单条详情，调整文件、强度或启停；移出不删除模型文件。修改先进入绘画草稿，试画满意后再保存方案。卡片使用统一图标，文件列表不提供封面图片。'))}
-      ${d.loras.error ? `<p class="error-copy">${esc(d.loras.error)}</p>` : ''}
-      <div class="vibe-grid vibe-scroll lora-grid" data-keep-scroll="lora-current">${current}</div>
-      <p class="hint" data-lora-none="current"${nodes.some(n => matches(n.name)) ? ' hidden' : ''}>${nodes.length ? '没有匹配的 LoRA' : '还没有 LoRA，点下方卡片或手动添加。'}</p>
-      ${groupTitle(`可用 LoRA${loaded ? ` · ${names.length}` : ''}`, `<span class="title-tools">${btn('lora-refresh', loading ? '读取中…' : icon('refresh') + (loaded ? '刷新' : '读取'), 'text-button', loading ? 'disabled' : '')}${help('从当前 ComfyUI 读取已安装的文件名，不下载模型。列表连接方式在引擎页设置；也可在单张卡片的「文件列表与连接」里调整。')}</span>`)}
-      ${error ? `<div class="comfy-note error-copy" role="status">读取失败，可手动添加 ${help(error)}</div>` : loading ? '<div class="comfy-note" role="status">正在读取 LoRA…</div>' : ''}
-      <div class="vibe-grid vibe-scroll lora-grid" data-keep-scroll="lora-catalog">${available}</div>
-      <p class="hint" data-lora-none="catalog"${names.some(matches) ? ' hidden' : ''}>${!loaded ? '读取列表后，点卡片添加。' : names.length ? '没有匹配的 LoRA' : 'ComfyUI 里还没有 LoRA 文件。'}</p>
-      <div class="actions">${btn('lora-manual', icon('add') + '手动添加', 'secondary')}</div>
-      <details class="tool-fold" data-group="lora-tools"><summary>${icon('layers')}更多操作</summary><div>${btn('lora-restore', '恢复原始工作流', 'text-button')}</div></details>`;
+  function done(result) {
+    if (result?.copied) ctx.notify(`默认工作流不会被改：已另存为「${result.name}」并换成它`);
+    rerender();
   }
-  function search(value) {
-    query = value;
-    for (const kind of ['current', 'catalog']) {
-      const grid = root().querySelector(`[data-keep-scroll="lora-${kind}"]`);
-      if (!grid) continue;
-      let shown = 0;
-      for (const card of grid.querySelectorAll('[data-lora-name]')) { card.hidden = !matches(card.dataset.loraName); if (!card.hidden) shown++; }
-      const note = root().querySelector(`[data-lora-none="${kind}"]`);
-      if (note) { note.hidden = shown > 0; if (grid.children.length) note.textContent = '没有匹配的 LoRA'; }
+  const edit = change => { try { done(api.editComfyLoras(change)); } catch (error) { ctx.notify(error.message, {error: true}); rerender(); } };
+  /** 添加 LoRA: a file (picked from ComfyUI's list or typed) and its strength; where it goes is worked out when it can be. */
+  function addSheet() {
+    const info = api.comfyLoraInfo(), c = api.getState().draw.comfy;
+    const d = ctx.dialog('添加 LoRA', `
+      ${field('LoRA 文件', input('lora-file', '', 'text', 'autocomplete="off" spellcheck="false" placeholder="文件名.safetensors（可含子目录）"'))}
+      <div class="lora-picks" data-lora-picks></div>
+      <div class="actions" style="margin-top:0">${btn('lora-read', icon('refresh') + (loaded ? '重新读取 ComfyUI 里的 LoRA' : '读取 ComfyUI 里的 LoRA'), 'secondary')}</div>
+      <p class="hint" data-lora-status role="status"></p>
+      <div class="field"><div class="meter-label"><span>强度</span><output>1</output></div><input class="slider" type="range" min="-2" max="2" step="0.05" value="1" data-lora-new aria-label="强度"></div>
+      ${info.auto ? '' : field('接在哪里', select('lora-source', '', [['', '请选择'], ...info.sources.map(s => [s.id, s.name])]), '这个工作流有好几条模型线路，选新 LoRA 接在哪一条后面（一般选最后一个 LoRA，或者主模型）。')}
+      <details class="tool-fold"><summary>${icon('alert')}读不到列表？</summary><div>
+        ${field('读取方式', select('lora-transport', c.loraTransport, [['tavern', '经酒馆代理'], ['direct', '浏览器直连']]), '经酒馆代理：酒馆 config.yaml 里要设 enableCorsProxy: true，改完重启酒馆。\n浏览器直连：ComfyUI 要用 --enable-cors-header 启动，而且这台设备打得开 ComfyUI 的地址（手机打不开电脑的 127.0.0.1）。\n都不行也没关系：直接填文件名（ComfyUI 里 models/loras 文件夹下的名字），画图不受影响。')}
+      </div></details>
+      <div class="actions">${btn('lora-add-go', icon('add') + '加进方案', 'primary')}</div>`);
+    const q = s => d.body.querySelector(s);
+    function picks() {
+      if (!d.live) return;
+      const typed = q('[data-field=lora-file]').value.trim().toLowerCase();
+      const shown = names.filter(n => !typed || n.toLowerCase().includes(typed)).slice(0, 40);
+      q('[data-lora-picks]').innerHTML = shown.map(n => `<button type="button" class="chip-button" data-pick="${esc(n)}" title="${esc(n)}">${esc(shortLora(n))}</button>`).join('');
+      q('[data-lora-status]').textContent = loaded ? (names.length ? `ComfyUI 里有 ${names.length} 个 LoRA，点一个填进去，或者打字筛选。` : 'ComfyUI 里还没有 LoRA 文件。') : '';
     }
-  }
-  function open(options) {
-    syncConnection(); editor?.close();
-    editor = editComfyLoras(ctx, rerender, {catalog: names, ...options});
-  }
-  async function read() {
-    syncConnection(); controller?.abort(); controller = new AbortController();
-    const ticket = ++request, key = connection;
-    loading = true; error = ''; rerender();
-    try {
-      const result = await api.comfyLoras({signal: controller.signal});
-      if (disposed || ticket !== request || key !== connectionKey()) return;
-      names = result; loaded = true;
-    } catch (e) { if (!disposed && ticket === request && key === connectionKey()) error = e.message; }
-    finally { if (!disposed && ticket === request) { loading = false; rerender(); } }
+    async function read() {
+      const ticket = ++request;
+      controller?.abort(); controller = new AbortController();
+      q('[data-lora-status]').textContent = '正在读取……';
+      try { names = await api.comfyLoras({signal: controller.signal}); loaded = true; if (ticket === request) picks(); }
+      catch (error) { if (d.live && ticket === request && !disposed) q('[data-lora-status]').textContent = '读不到：' + error.message; }
+    }
+    picks();
+    d.body.addEventListener('input', e => {
+      if (e.target.matches('[data-field=lora-file]')) picks();
+      if (e.target.matches('[data-lora-new]')) e.target.previousElementSibling.querySelector('output').textContent = e.target.value;
+    });
+    d.body.addEventListener('change', e => { if (e.target.matches('[data-field=lora-transport]')) { api.saveDraw({comfy: {loraTransport: e.target.value}}); names = []; loaded = false; picks(); } });
+    d.body.addEventListener('click', e => {
+      const b = e.target.closest('[data-action], [data-pick]');
+      if (!b) return;
+      if (b.dataset.pick) { q('[data-field=lora-file]').value = b.dataset.pick; picks(); return; }
+      if (b.dataset.action === 'lora-read') { read(); return; }
+      if (b.dataset.action !== 'lora-add-go') return;
+      const file = q('[data-field=lora-file]').value.trim(), value = Number(q('[data-lora-new]').value), source = q('[data-field=lora-source]')?.value || '';
+      if (!file) { ctx.notify('先选或填一个 LoRA 文件'); return; }
+      if (!info.auto && !source) { ctx.notify('选一下 LoRA 接在哪里'); return; }
+      try { const result = api.editComfyLoras({add: {lora_name: file, strength_model: value, strength_clip: value, ...(source ? {source} : {})}}); d.close(); done(result); }
+      catch (error) { ctx.notify(error.message, {error: true}); }
+    });
+    d.onClose(() => { request++; controller?.abort(); });
   }
   async function click(el) {
     switch (el.dataset.action) {
-      case 'lora-open': open({nodeId: el.dataset.id}); return true;
-      case 'lora-catalog-open': {
-        const found = api.getComfyDraft().loras.nodes.find(n => n.name === el.dataset.file);
-        open(found ? {nodeId: found.id} : {addFile: el.dataset.file}); return true;
-      }
-      case 'lora-manual': open({addFile: ''}); return true;
-      case 'lora-refresh': if (!loading) await read(); return true;
-      case 'lora-restore': {
-        const d = api.getComfyDraft();
-        if (await ctx.confirm('恢复原始工作流？', '这会重置当前草稿的工作流和 LoRA，其他出图参数保留。保存方案后才写入。') && !disposed) {
-          api.updateComfyDraft({workflow: d.value.sourceWorkflow || d.base.workflow || api.drawCatalog.comfyWorkflow, disabledLoras: []}, d.value); rerender();
-        }
-        return true;
-      }
+      case 'lora-add': addSheet(); return true;
+      case 'lora-remove':
+        // Two taps: the first turns the bin into 「再点移除」.
+        if (armed !== el.dataset.id) { const id = armed = el.dataset.id; rerender(); setTimeout(() => { if (armed === id && !disposed) { armed = ''; rerender(); } }, 3000); return true; }
+        armed = ''; edit({remove: el.dataset.id}); return true;
     }
     return false;
   }
-  return {html, search, click, dispose() { disposed = true; request++; controller?.abort(); editor?.close(); }};
+  function change(el) {
+    if (el.matches('[data-lora-toggle]')) edit({enabled: {[el.dataset.loraToggle]: el.checked}});
+    else if (el.matches('[data-lora-strength]')) edit({updates: [{id: el.dataset.id, [el.dataset.loraStrength]: Number(el.value)}]});
+  }
+  const slide = el => { el.nextElementSibling.textContent = el.value; };
+  return {html, click, change, slide, dispose() { disposed = true; request++; controller?.abort(); }};
 }

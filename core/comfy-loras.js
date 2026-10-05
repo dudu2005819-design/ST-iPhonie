@@ -120,3 +120,18 @@ export function activeLoraWorkflow(text, disabled = []) {
   for (const id of ids) removeNode(graph, id);
   return JSON.stringify(graph);
 }
+
+/**
+ * Where a new LoRA goes without asking: the end of the LoRA chain, or the only model loader. '' when the workflow
+ * has several chains and the user has to choose.
+ */
+export function pickLoraSource(text) {
+  const info = inspectLoras(text);
+  if (info.error || !info.sources.length) return '';
+  if (info.sources.length === 1) return info.sources[0].id;
+  const graph = graphOf(text), loras = info.sources.filter(s => TYPES.has(graph[s.id]?.class_type));
+  // The last LoRA of a chain: no other LoRA takes its model output.
+  const ends = loras.filter(s => !Object.values(graph).some(n => TYPES.has(n?.class_type) && same(n.inputs?.model, [s.id, 0])));
+  if (ends.length === 1) return ends[0].id;
+  return !loras.length && info.sources.length === 1 ? info.sources[0].id : '';
+}

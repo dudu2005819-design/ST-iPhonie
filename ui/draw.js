@@ -61,7 +61,9 @@ export function drawApp(ctx) {
 
   async function render() {
     const ticket = ++epoch, d = state(), e = d.engine, s = styleDraft || style(), q = quote(), p = q.params, keyed = api.drawReady();
-    const comfy = e === 'comfy' ? api.getComfyDraft() : null;
+    // ComfyUI: the scheme in use, which parameters its workflow takes, and its LoRAs.
+    let comfy = null;
+    if (e === 'comfy') { try { comfy = api.comfyLoraInfo(); } catch (error) { comfy = {nodes: [], sources: [], disabled: [], controls: [], error: error.message, missing: ''}; } }
     if (comfyAddress !== d.comfy.url) { comfyAddress = d.comfy.url; comfyInfo = null; comfyRequest++; }
     if (tab === 'vibe' || tab === 'lora') tab = e === 'nai' ? 'vibe' : e === 'comfy' ? 'lora' : 'prompt';
     const shown = results[current];
@@ -83,7 +85,7 @@ export function drawApp(ctx) {
         ${btn('position', '让模型自己决定位置', 'text-button', `data-index="${i}" data-position="-1" aria-pressed="${c.position < 0}"`)}</div>`).join('') : empty('还没有加入角色', e === 'gpt' ? '每个角色的外貌和在画面里的位置，会写进给 GPT 的描述里。' : e === 'comfy' ? 'ComfyUI 没有分角色的提示词：每个人的外貌接在提示词后面，位置不起作用。' : 'V4 / 4.5 可以给每个角色单独写外貌，并指定在画面里的大致位置。', 'person'))
       + `<div class="actions">${btn('add-char', icon('add') + '从角色里添加', 'secondary')}${btn('add-custom', icon('add') + '手动添加', 'secondary')}</div>`;
     if (tab === 'params' && e === 'gpt') body = gptParams(d.gpt);
-    if (tab === 'params' && e === 'comfy') body = comfyParams(comfy.value, comfy.controls);
+    if (tab === 'params' && e === 'comfy') body = comfyParams(d.comfy, comfy.controls);
     if (tab === 'params' && e === 'nai') body = `
       <div class="group pad">
         ${field('模型', select('model', d.params.model, api.drawCatalog.models.map(m => [m, api.drawCatalog.modelNames[m] || m])), /^nai-diffusion-5/.test(d.params.model) ? 'V5 对 Opus 不是无限的：免费档内的图用一份会慢慢恢复的免费额度，用完后改扣 Anlas。V4.5 及更早的模型仍然无限。' : '')}
@@ -111,7 +113,7 @@ export function drawApp(ctx) {
         ${cloudNote ? `<p class="hint${cloudNote.ok ? '' : ' error-copy'}" style="padding:0">${esc(cloudNote.text)}</p>` : ''}
       </div>`;
     if (tab === 'vibe') body = vibes.html();
-    if (tab === 'lora') body = plans.summary() + loras.html();
+    if (tab === 'lora') body = plans.summary(comfy) + loras.html(comfy);
     if (tab === 'chat') body = `
       ${d.enabled ? '' : `<div class="banner">${icon('image')}<span>正文出图没有开启，在「设置 · 绘图」里打开。</span>${btn('go-settings', '去打开', 'chip-button')}</div>`}<div class="group">${toggle('auto', '新回复自动出图', d.auto, '只自动画不花钱的：NovelAI 免费档内的图、ComfyUI 的图；GPT 生图在「每张先问」关掉后也会自动画。其余的正文里会显示“点击生成”。')}${toggle('fold', '正文图片默认收起', d.fold, '收起后正文里只留一个小缩略图，点开再看，手机上不占地方。每张图也可以单独收起或展开。')}</div>
       <div class="field"><span>配图方式${help('单独配图：正文模型只管写故事；回复写完后，插件用同一个模型再单独请求一次，读这条回复、挑画面、写出图块，再把图插到对应的段落后面。出图规则不会挤占正文，张数和格式更稳，每条回复多一次请求。\n\n正文里顺手写：把出图规则加进正文请求，模型写故事时顺手写出图块。只要一次请求，但规则较长，偶尔会影响正文或漏写。')}</span><div class="segmented" style="margin:0">${[['separate', '回复后单独配图'], ['inline', '正文里顺手写']].map(([k, l]) => `<button data-action="mode" data-mode="${k}" aria-pressed="${d.mode === k}">${l}</button>`).join('')}</div></div>
@@ -161,7 +163,7 @@ export function drawApp(ctx) {
       : input(key, value, 'text', `autocomplete="off" spellcheck="false" placeholder="${placeholder}"`);
     const slider = (key, label, min, max, step = 1) => has(key) ? `<div class="field"><div class="meter-label"><span>${label}</span><output>${c[key]}</output></div><input class="slider" type="range" data-comfy="${key}" min="${min}" max="${max}" step="${step}" value="${c[key]}" aria-label="${label}"></div>` : '';
     return `<div class="group pad">
-      <div class="row-heading"><strong>出图参数 ${help('这里只显示工作流留给插件填写的参数。工作流写死的值由工作流决定，需要在 ComfyUI 修改后重新导入。参数修改先保留在草稿，试画满意后再保存方案。')}</strong>${btn('comfy-read', icon('refresh'), 'round-button', 'aria-label="刷新模型和采样器"')}</div>
+      <div class="row-heading"><strong>出图参数 ${help('这里只显示工作流留给插件填写的参数。工作流写死的值由工作流决定，需要在 ComfyUI 修改后重新导入。改动马上保存进正在用的方案。')}</strong>${btn('comfy-read', icon('refresh'), 'round-button', 'aria-label="刷新模型和采样器"')}</div>
       ${info?.error ? `<div class="comfy-note error-copy">列表读取失败，可手填 ${help(info.error)}</div>` : ''}
       ${has('model') ? field('模型', choose('comfy-model', c.model, info?.models, '刷新列表，或填模型文件名')) : `<div class="comfy-note">模型由工作流指定 ${help('当前工作流没有模型占位符，模型选择保留在工作流内。')}</div>`}
       ${has('width') && has('height') ? `<div class="field"><span>画幅</span><div class="size-chips">${SIZES.map(([k, label, w, h]) => `<button data-action="comfy-size" data-size="${k}" aria-pressed="${size === k}"><i style="width:${w / 100}px;height:${h / 100}px"></i>${label}<small>${w}×${h}</small></button>`).join('')}</div></div>` : ''}
@@ -227,15 +229,12 @@ export function drawApp(ctx) {
   v.on('change', 'select[data-field]', el => { if (/^comfy-/.test(el.dataset.field)) return; api.saveDraw({params: {[el.dataset.field]: el.value}}); render(); });
   // ComfyUI fields: a select from 读取, or a typed name when nothing was read.
   v.on('change', '[data-field=comfy-preset]', el => plans.choose(el.value));
-  function markComfyDraft(draft) {
-    const badge = v.root.querySelector('[data-comfy-dirty]'), save = v.root.querySelector('[data-action=comfy-save]');
-    if (badge) badge.textContent = draft.dirty ? '未保存' : '已保存';
-    if (save) save.disabled = !draft.dirty;
-  }
-  v.on('input', 'input[data-field^=comfy-]', el => { markComfyDraft(api.updateComfyDraft({params: {[el.dataset.field.slice(6)]: el.value.trim()}})); });
-  v.on('change', '[data-field^=comfy-]:not([data-field=comfy-preset])', el => { api.updateComfyDraft({params: {[el.dataset.field.slice(6)]: el.value.trim()}}); render(); });
-  v.on('input', '[data-comfy]', el => { el.previousElementSibling.querySelector('output').textContent = el.dataset.comfy === 'scale' ? Number(el.value).toFixed(1) : el.value; markComfyDraft(api.updateComfyDraft({params: {[el.dataset.comfy]: Number(el.value)}})); });
-  v.on('change', '[data-comfy]', el => { api.updateComfyDraft({params: {[el.dataset.comfy]: Number(el.value)}}); render(); });
+  // ComfyUI parameters are saved into the scheme in use as soon as they change.
+  v.on('change', '[data-field^=comfy-]:not([data-field=comfy-preset])', el => { try { api.saveDraw({comfy: {[el.dataset.field.slice(6)]: el.value.trim()}}); } catch (error) { ctx.notify(error.message, {error: true}); } render(); });
+  v.on('input', '[data-comfy]', el => { el.previousElementSibling.querySelector('output').textContent = el.dataset.comfy === 'scale' ? Number(el.value).toFixed(1) : el.value; });
+  v.on('change', '[data-comfy]', el => { api.saveDraw({comfy: {[el.dataset.comfy]: Number(el.value)}}); render(); });
+  v.on('input', '[data-lora-strength]', el => loras.slide(el));
+  v.on('change', '[data-lora-toggle], [data-lora-strength]', el => loras.change(el));
   v.on('change', '[data-cloud]', () => { api.saveDraw({queue: {cloud: cloudFields()}}); cloudNote = null; });
   v.on('change', 'input.switch[data-field]', el => {
     const key = el.dataset.field;
@@ -247,7 +246,6 @@ export function drawApp(ctx) {
     render();
   });
   v.on('input', '[data-vibe-search]', el => vibes.search(el.value));
-  v.on('input', '[data-lora-search]', el => loras.search(el.value));
   v.on('change', '[data-vibe-file]', async el => { const files = [...el.files]; el.value = ''; await vibes.importFiles(files); });
   v.on('click', '[data-action]', async el => {
     if (eng() === 'comfy' && await plans.click(el)) return;
@@ -259,7 +257,7 @@ export function drawApp(ctx) {
       case 'draw-engine': api.saveDraw({engine: el.dataset.pick}); styleDraft = null; render(); refreshSubscription(); break;
       case 'gpt-quality': api.saveDraw({gpt: {quality: el.dataset.value}}); render(); break;
       case 'gpt-orientation': api.saveDraw({gpt: {orientation: el.dataset.value}}); render(); break;
-      case 'comfy-size': { const [, , width, height] = SIZES.find(s => s[0] === el.dataset.size); api.updateComfyDraft({params: {width, height}}); render(); break; }
+      case 'comfy-size': { const [, , width, height] = SIZES.find(s => s[0] === el.dataset.size); api.saveDraw({comfy: {width, height}}); render(); break; }
       case 'comfy-read': await v.busy(el, readComfy); break;
       case 'size': { const [, , width, height] = SIZES.find(s => s[0] === el.dataset.size); api.saveDraw({params: {width, height}}); render(); break; }
       case 'dice': seed = Math.floor(Math.random() * 4294967295); render(); break;
@@ -327,7 +325,7 @@ export function drawApp(ctx) {
         prompt: [s.artist, s.positive, prompt].map(x => (x || '').trim()).filter(Boolean).join(', '),
         negative: [s.negative, negative].map(x => (x || '').trim()).filter(Boolean).join(', '),
         characters: characters.filter(c => c.prompt.trim()).map(c => ({prompt: c.prompt, position: c.position})),
-        params: eng() === 'nai' ? {...state().params, seed} : {seed}, useComfyDraft: eng() === 'comfy', allowPaid, name: engineName().replace(/\s+/g, ''), label: '绘图 App · ' + (prompt.trim().slice(0, 24) || s.name)
+        params: eng() === 'nai' ? {...state().params, seed} : {seed}, allowPaid, name: engineName().replace(/\s+/g, ''), label: '绘图 App · ' + (prompt.trim().slice(0, 24) || s.name)
       });
       results.unshift(result);
       results = results.slice(0, MAX_RESULTS);

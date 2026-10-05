@@ -7,6 +7,8 @@
 //   the computer's 127.0.0.1 gets in the way: the tavern server talks to ComfyUI. Workflows use the tavern's
 //   placeholders ("%prompt%", "%width%" …), so a workflow made for the tavern's image generation works here too.
 
+import {normalizeDisabledLoras} from './comfy-loras.js';
+
 export const DRAW_ENGINES = ['nai', 'gpt', 'comfy'];
 export const DRAW_ENGINE_NAMES = {nai: 'NovelAI', gpt: 'GPT 生图', comfy: 'ComfyUI'};
 
@@ -125,7 +127,6 @@ export async function gptGenerate({fetch = globalThis.fetch, settings, key, prom
 }
 
 // ---------- ComfyUI ----------
-import {normalizeDisabledLoras} from './comfy-loras.js';
 /** The tavern's default workflow (SD 1.5 / SDXL checkpoint, one KSampler). */
 export const DEFAULT_COMFY_WORKFLOW = JSON.stringify({
   3: {class_type: 'KSampler', inputs: {cfg: '%scale%', denoise: 1, latent_image: ['5', 0], model: ['4', 0], negative: ['7', 0], positive: ['6', 0], sampler_name: '%sampler%', scheduler: '%scheduler%', seed: '%seed%', steps: '%steps%'}},
@@ -183,35 +184,38 @@ export function applyComfyWorkflow(c, id = c.activeWorkflow) {
 }
 export function normalizeComfy(value) {
   const base = defaultComfy(), c = value && typeof value === 'object' ? value : {}, params = comfyParams(c);
-  const legacy = (() => { try { return checkWorkflow(c.workflow); } catch { return ''; } })();
+  const tryOr = (task, fallback) => { try { return task(); } catch { return fallback; } };
+  const legacy = tryOr(() => checkWorkflow(c.workflow), '');
   let rows = Array.isArray(c.workflows) && c.workflows.length ? c.workflows : null;
   let active = c.activeWorkflow;
   if (!rows) {
     rows = [{...base.workflows[0], ...params}];
     if (legacy) { rows.push({id: 'legacy', name: '原有工作流', workflow: legacy, ...params}); active = 'legacy'; }
   }
-  if (rows.length > COMFY_LIMITS.presets) throw Error(`最多保存 ${COMFY_LIMITS.presets} 套 ComfyUI 工作流（含默认）`);
-  const ids = new Set(), workflows = rows.map(row => {
-    const id = String(row?.id || '');
-    if (!/^[\w-]{1,64}$/.test(id) || ids.has(id)) throw Error('ComfyUI 工作流编号无效或重复');
+  // Settings are repaired, never refused (they come from other versions, other devices and backups): a scheme
+  // whose workflow does not read is left out, a broken or repeated id gets a new one, the built-in default is kept.
+  const ids = new Set(), workflows = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const workflow = tryOr(() => checkWorkflow(row.workflow), null);
+    if (workflow === null) continue;
+    let id = String(row.id || '');
+    if (id === 'default' && workflow) id = '';
+    if (id !== 'default' && !workflow) continue;
+    if (!/^[\w-]{1,64}$/.test(id) || ids.has(id)) id = crypto.randomUUID();
     ids.add(id);
-    const workflow = checkWorkflow(row.workflow);
-    if (id === 'default' && workflow) throw Error('默认工作流不能被覆盖，请另存为一套');
-    if (id !== 'default' && !workflow) throw Error('导入的工作流不能为空');
-    const disabledLoras = normalizeDisabledLoras(workflow, row.disabledLoras);
-    const sourceWorkflow = row.sourceWorkflow ? checkWorkflow(row.sourceWorkflow) : '';
-    return {id, name: id === 'default' ? '默认工作流' : String(row.name || '未命名工作流').trim().slice(0, 60) || '未命名工作流', workflow, disabledLoras, ...(sourceWorkflow ? {sourceWorkflow} : {}), ...comfyParams(row)};
-  });
-  if (!ids.has('default')) {
-    if (workflows.length >= COMFY_LIMITS.presets) throw Error('请给默认工作流留出一个位置');
-    workflows.unshift(base.workflows[0]);
+    const disabledLoras = workflow ? tryOr(() => normalizeDisabledLoras(workflow, row.disabledLoras || []), []) : [];
+    const sourceWorkflow = row.sourceWorkflow ? tryOr(() => checkWorkflow(row.sourceWorkflow), '') : '';
+    workflows.push({id, name: id === 'default' ? '默认工作流' : String(row.name || '未命名工作流').trim().slice(0, 60) || '未命名工作流', workflow, disabledLoras, ...(sourceWorkflow ? {sourceWorkflow} : {}), ...comfyParams(row)});
   }
-  active = workflows.some(p => p.id === active) ? active : 'default';
-  const selected = workflows.find(p => p.id === active);
-  // Existing parameter controls and older callers edit the selected preset through the flat fields.
+  const builtIn = workflows.find(p => p.id === 'default') || {...base.workflows[0], ...params};
+  const list = [builtIn, ...workflows.filter(p => p !== builtIn)].slice(0, COMFY_LIMITS.presets);
+  active = list.some(p => p.id === active) ? active : 'default';
+  const selected = list.find(p => p.id === active);
+  // The parameter controls edit the selected scheme through the flat fields.
   for (const key of COMFY_PARAM_KEYS) if (Object.hasOwn(c, key)) selected[key] = params[key];
-  const out = {url: (() => { try { return comfyUrl(c.url ?? base.url); } catch { return base.url; } })(),
-    loraTransport: c.loraTransport === 'direct' ? 'direct' : 'tavern', style: typeof c.style === 'string' ? c.style.slice(0, 64) : '', workflows, activeWorkflow: active};
+  const out = {url: tryOr(() => comfyUrl(c.url ?? base.url), base.url),
+    loraTransport: c.loraTransport === 'direct' ? 'direct' : 'tavern', style: typeof c.style === 'string' ? c.style.slice(0, 64) : '', workflows: list, activeWorkflow: active};
   return applyComfyWorkflow(out);
 }
 /** ComfyUI size for a picture's orientation: the configured size, turned or squared to match. */
@@ -292,13 +296,17 @@ export async function comfyLoras({fetch = globalThis.fetch, url, transport = 'ta
   const endpoint = comfyUrl(url) + '/object_info/LoraLoader';
   const direct = transport === 'direct';
   if (!['tavern', 'direct'].includes(transport)) throw Error('LoRA 列表读取方式无效');
-  const timeout = AbortSignal.timeout(15000), combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  // AbortSignal.any / .timeout are missing on older iPhones (Safari before 17.4): one controller does both.
+  const control = new AbortController(), timer = setTimeout(() => control.abort(), 15000);
+  if (signal) { if (signal.aborted) control.abort(); else signal.addEventListener('abort', () => control.abort(), {once: true}); }
+  const combined = control.signal;
   let response;
   try { response = await fetch(direct ? endpoint : '/proxy/' + endpoint, {method: 'GET', credentials: direct ? 'omit' : 'same-origin', headers: {Accept: 'application/json'}, signal: combined}); }
   catch (error) {
     if (signal?.aborted) throw error;
     throw Error(direct ? '浏览器读不到 ComfyUI 的 LoRA 列表：请检查地址和跨域设置。手机不能用电脑的 127.0.0.1，可改用酒馆代理；也可手填文件名。' : '酒馆代理读不到 LoRA 列表：请检查 ComfyUI 地址和连接；也可手填文件名。');
   }
+  clearTimeout(timer);
   const text = await response.text();
   if (!response.ok) {
     if (!direct && /CORS proxy is disabled/i.test(text)) throw Error('酒馆代理尚未开启：在酒馆 config.yaml 设置 enableCorsProxy: true 后重启，或选择浏览器直连。也可以先手填已安装的 LoRA 文件名。');
