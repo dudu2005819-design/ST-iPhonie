@@ -60,14 +60,14 @@ export const DEFAULT_DRAW_ENTRIES = Object.freeze([
   ].join('\n')},
   {id: 'cast-nai', title: 'NovelAI：加重、反向、站位、互动', engines: ['nai'], text: [
     "加重：这张图最要紧的一两个 tag 写成 1.2::tag::（数字 1.1 到 1.4，一张图最多三处），只加在一个短 tag 上，比如 1.3::heavy blush::，不要加在一整句或一串词上。",
-    "不要出现的 tag：写这个人最容易被画错的方向，三到六个——和这一刻相反的表情（在发火就写 smile, calm），错的性别或年龄（男孩写 female，女孩写 male，孩子写 adult），多人同框时写 fused bodies, background characters。",
+    "不要出现的 tag：写这个人最容易被画错的方向，三到六个——和这一刻相反的表情（在发火就写 smile, calm）、错的年龄（孩子写 adult）。只有一个人时可以写错的性别（男孩写 female，女孩写 male）；多人同框时不写性别和人数（male、female、boy、girl 这类），它会连画面里的另一个人一起压掉，改写 fused bodies, background characters。",
     "站位：A 到 E 是从左到右，1 到 5 是从上到下，C3 是正中间。一个人写 C3；两个人并排常用 B3 和 D3，抱在一起、叠在一起的都写 C3；拿不准就留空。",
     "互动：两个人之间每个有方向的动作都用 source#、target#、mutual# 标出来，双方都写、用同一个词——抱的人 source#hug，被抱的人 target#hug，互相的就都写 mutual#hug。一个人可以同时有几个，比如 target#hug, source#pushing away。露骨场景写清画面里真正露出的部位和动作，不要用 nsfw 这类笼统的词代替；被遮住或出画的部位不写。"
   ].join('\n')},
   {id: 'cast-comfy', title: 'ComfyUI：加重、反向、互动', engines: ['comfy'], text: [
     "这次用 ComfyUI（SDXL 一类的模型）画：它不分人画，所有人的 tag 会合成一条提示词。",
     "加重：最要紧的一两个 tag 写成 1.2::tag::（数字 1.1 到 1.4，一张图最多三处），插件会换成 ComfyUI 的写法。",
-    "不要出现的 tag：两三个就够，写最容易画错的（错的性别、和这一刻相反的表情）；多人同框时写 extra arms, fused bodies。它们会合进整张图的负面。",
+    "不要出现的 tag：两三个就够，写和这一刻相反的表情；多人同框时写 extra arms, fused bodies。它们会合进整张图的负面，所以不写性别和人数（male、female、boy、girl 这类），不然画面里那个性别的人会被整个去掉。",
     "站位留空，模型不按站位画；需要时在场景里写 side by side、facing each other、back-to-back 这样的构图 tag。",
     "互动不用 source#、target#、mutual#（只有 NovelAI 认），直接写动作 tag：hug、hugging from behind、holding hands、kiss、carrying、headpat，写在做这个动作的人那一行。",
     "多人同框时外貌容易混：人越少越稳；两个人以上时，把最能区分彼此的特征（发色、衣服颜色）写清楚。露骨场景写清画面里真正露出的部位和动作，不要用 nsfw 这类笼统的词代替。"
@@ -99,6 +99,24 @@ export const DEFAULT_DRAW_ENTRIES = Object.freeze([
     '名单里没有、但有名字的新角色第一次入画时，在这个出图块里加一行「新外貌」：名字｜固定外貌 tag。只写不会随场景变的特征：1girl 或 1boy、发型发色、瞳色、体型、显眼的特征，作品角色把识别 tag 放最前；不写衣服、表情、动作。名字照正文原文，中文名不要翻译或改成拼音。'
   ].join('\n')},
   {id: 'size', title: '画幅', text: '「画幅」写 竖、横、方 之一：单人、站姿、特写、贴得很近的两个人用竖；多人铺开、远景、全景用横。先想好镜头再定画幅，拿不准用竖。'}
+]);
+// The engine entries shipped from 0.6.49 to 0.6.67 (their negatives named the wrong gender, which also removed the
+// other person in a picture of two). Untouched copies get the current text.
+export const V08_DRAW_ENTRIES = Object.freeze([
+  {id: 'cast-nai', title: 'NovelAI：加重、反向、站位、互动', engines: ['nai'], text: [
+    "加重：这张图最要紧的一两个 tag 写成 1.2::tag::（数字 1.1 到 1.4，一张图最多三处），只加在一个短 tag 上，比如 1.3::heavy blush::，不要加在一整句或一串词上。",
+    "不要出现的 tag：写这个人最容易被画错的方向，三到六个——和这一刻相反的表情（在发火就写 smile, calm），错的性别或年龄（男孩写 female，女孩写 male，孩子写 adult），多人同框时写 fused bodies, background characters。",
+    "站位：A 到 E 是从左到右，1 到 5 是从上到下，C3 是正中间。一个人写 C3；两个人并排常用 B3 和 D3，抱在一起、叠在一起的都写 C3；拿不准就留空。",
+    "互动：两个人之间每个有方向的动作都用 source#、target#、mutual# 标出来，双方都写、用同一个词——抱的人 source#hug，被抱的人 target#hug，互相的就都写 mutual#hug。一个人可以同时有几个，比如 target#hug, source#pushing away。露骨场景写清画面里真正露出的部位和动作，不要用 nsfw 这类笼统的词代替；被遮住或出画的部位不写。"
+  ].join('\n')},
+  {id: 'cast-comfy', title: 'ComfyUI：加重、反向、互动', engines: ['comfy'], text: [
+    "这次用 ComfyUI（SDXL 一类的模型）画：它不分人画，所有人的 tag 会合成一条提示词。",
+    "加重：最要紧的一两个 tag 写成 1.2::tag::（数字 1.1 到 1.4，一张图最多三处），插件会换成 ComfyUI 的写法。",
+    "不要出现的 tag：两三个就够，写最容易画错的（错的性别、和这一刻相反的表情）；多人同框时写 extra arms, fused bodies。它们会合进整张图的负面。",
+    "站位留空，模型不按站位画；需要时在场景里写 side by side、facing each other、back-to-back 这样的构图 tag。",
+    "互动不用 source#、target#、mutual#（只有 NovelAI 认），直接写动作 tag：hug、hugging from behind、holding hands、kiss、carrying、headpat，写在做这个动作的人那一行。",
+    "多人同框时外貌容易混：人越少越稳；两个人以上时，把最能区分彼此的特征（发色、衣服颜色）写清楚。露骨场景写清画面里真正露出的部位和动作，不要用 nsfw 这类笼统的词代替。"
+  ].join('\n')}
 ]);
 // Rules shipped from 0.6.1 to 0.6.48 (before GPT and ComfyUI). Untouched copies get the current text.
 export const V07_DRAW_ENTRIES = Object.freeze([
@@ -350,7 +368,7 @@ export function normalizeDraw(value) {
     if (entries.length === 1 && OLD_DEFAULT_RULES.includes(entries[0].text)) entries = DEFAULT_PRESET.entries;
     entries = entries.map(e => {
       const now = DEFAULT_DRAW_ENTRIES.find(x => x.id === e.id);
-      const old = [V05_DRAW_ENTRIES, V06_DRAW_ENTRIES, V07_DRAW_ENTRIES].some(list => list.find(x => x.id === e.id)?.text === e.text);
+      const old = [V05_DRAW_ENTRIES, V06_DRAW_ENTRIES, V07_DRAW_ENTRIES, V08_DRAW_ENTRIES].some(list => list.find(x => x.id === e.id)?.text === e.text);
       return now && old ? {...e, text: now.text} : e;
     });
     if (!(Number(p.rev) >= 2) && entries.some(e => e.id === 'cast') && !entries.some(e => e.id === 'tension')) {
@@ -717,6 +735,10 @@ export function sceneTags(tags, people) {
   if (people === 1 && !/(?:^|,)\s*solo\s*(?:,|$)/i.test(out)) out = out.replace(/\b(1(?:girl|boy|other))\b/i, '$1, solo');
   return out;
 }
+/** Gender and count tags. In a picture of several people they leave a character's negative: NovelAI lets it leak onto
+ *  the others (all of them when no 站位 is given), and ComfyUI joins every negative into one. */
+const PEOPLE_TAG = /^(?:\d\+?\s*)?(?:girls?|boys?|others?|males?|females?|man|men|woman|women|multiple (?:girls|boys|others)|(?:male|female) focus)$/i;
+export const withoutPeopleTags = tags => String(tags || '').split(',').map(t => t.trim()).filter(t => t && !PEOPLE_TAG.test(t.replace(/^[\d.]+::|::$/g, '').replace(/[()\[\]{}]/g, '').trim())).join(', ');
 /** Character prompts count nobody: 1girl/1boy/1other in a fixed appearance become girl/boy/other. */
 const soloTags = tags => String(tags).replace(/\b1\s*(girl|boy|other)\b/gi, '$1');
 function mergeTags(...lists) {
@@ -755,7 +777,7 @@ export function pictureInputs(settings, tag, text = '') {
   const roles = drawable(settings), many = spec.cast.length > 1;
   const characters = spec.cast.map(c => {
     const fixed = roles.find(r => sameName(r.name, c.name))?.appearance || spec.register.find(x => sameName(x.name, c.name))?.appearance || '';
-    return {prompt: [mergeTags(soloTags(fixed), c.tags), c.nl].filter(Boolean).join(', '), negative: many ? mergeTags(c.negative, 'fused bodies') : c.negative || '', position: gridIndex(c.position)};
+    return {prompt: [mergeTags(soloTags(fixed), c.tags), c.nl].filter(Boolean).join(', '), negative: many ? mergeTags(withoutPeopleTags(c.negative), 'fused bodies') : c.negative || '', position: gridIndex(c.position)};
   });
   return {prompt: [...head, sceneTags(spec.tags, spec.cast.length), spec.nl].filter(Boolean).join(', '), negative: style.negative.trim(), characters, names: spec.cast.map(c => c.name), params};
 }
