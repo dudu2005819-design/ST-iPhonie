@@ -332,9 +332,11 @@ export function bringText(preset, {thread, messages, user = '我'}) {
   return fill(preset.bring, {'用户': user, '对象': partner, '聊天记录': lines});
 }
 
-/** Removes voice/picture tags and markup from a story message, for the chat prompt. */
+/** Removes voice/picture tags and markup from a story message, for the chat prompt. Code blocks, styles and scripts
+ *  (the HTML 小剧场 some presets write) are not story: they are left out whole instead of becoming a wall of CSS. */
 export function plainStory(textValue) {
   return String(textValue || '')
+    .replace(/```[\s\S]*?(?:```|$)|<(style|script)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)|<!--[\s\S]*?(?:-->|$)/gi, ' ')
     .replace(/<tts\b[^>]*>[\s\S]*?<\/tts\s*>/gi, '')
     .replace(/<img\b[^>]*>[^<]*<\/img\s*>|<img\b[^>]*>/gi, '')
     .replace(/<[^>]+>/g, '')

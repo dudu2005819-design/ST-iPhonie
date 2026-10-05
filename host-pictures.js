@@ -13,6 +13,7 @@
 import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact, suggestRequest, cleanSuggestion} from './core/draw.js';
 import {openImageViewer} from './image-viewer.js';
 import {downloadAction} from './download.js';
+import {plainStory} from './core/chat.js';
 import {TIER_NAMES, NAI_MODEL_NAMES} from './core/novelai.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -110,7 +111,7 @@ export function createPictureHost({context, redrawMessage = (id, message) => con
     for (let i = id - 1; i >= 0 && out.length < limit; i--) {
       const m = chat[i];
       if (!m || m.is_system) continue;
-      const text = withoutPictures(m.mes).replace(/<tts\b[^>]*>[\s\S]*?<\/tts\s*>/gi, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+      const text = plainStory(withoutPictures(m.mes));
       if (text) out.unshift({name: m.name || (m.is_user ? '我' : '角色'), text: text.slice(0, 600)});
     }
     return out;
