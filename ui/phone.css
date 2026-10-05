@@ -1605,3 +1605,13 @@ button.gift-item[data-short]{opacity:.55}
 .story-source .switch{flex-shrink:0}
 .story-field{display:flex;flex-direction:column;gap:7px;margin:14px 0;min-width:0}
 .story-field>span:first-child{font-size:13px;font-weight:800;display:flex;align-items:center;gap:6px}
+
+/* 带进剧情: the bars around the picked messages, dragged like QQ's multi-select. */
+.range-bar{display:flex;align-items:center;gap:8px;margin:2px 4px;padding:6px 0;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;color:var(--accent-btn);font-size:12px;font-weight:700;position:relative;z-index:1}
+.range-bar i{flex:1;height:2px;border-radius:2px;background:currentColor;opacity:.55}
+.range-bar span{padding:4px 12px;border-radius:999px;background:var(--card);box-shadow:0 0 0 1.5px currentColor,0 2px 8px rgba(20,40,80,.12);white-space:nowrap}
+.range-bar span::before{content:'';display:inline-block;width:8px;height:8px;margin-right:6px;border-left:2px solid currentColor;border-right:2px solid currentColor;vertical-align:-1px;opacity:.7}
+.range-bar.dragging{cursor:grabbing}
+.range-bar.dragging span{background:var(--accent-btn);color:var(--card);box-shadow:0 4px 14px rgba(20,40,80,.25);transform:scale(1.05)}
+.selecting .msg:not([data-picked]){opacity:.62}
+.selecting .msg{transition:opacity .15s}

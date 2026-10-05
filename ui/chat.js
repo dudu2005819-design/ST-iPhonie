@@ -220,12 +220,20 @@ export function chatApp(ctx) {
     const again = m.from === 'me' && recalled.has(m.id) ? btn('re-edit', '重新编辑', 'text-button', mid) : '';
     return `<div class="note-line" ${mid}>${esc(you(m.from))} 撤回了一条消息${again}</div>`;
   }
+  // 带进剧情 picks, like forwarding several messages in QQ: the picked ones sit between 从这里开始 and 到这里结束.
+  // Dragging a bar takes in every message it passes (one untapped inside stays out); tapping a message toggles it.
+  let edges = {};
+  const rangeBar = edge => `<div class="range-bar" data-edge="${edge}" role="slider" aria-label="${edge === 'start' ? '拖动改起点' : '拖动改终点'}"><i></i><span>${edge === 'start' ? '从这里开始' : '到这里结束'}</span><i></i></div>`;
+  function pickEdges() {
+    const ids = thread.messages.filter(m => !LINE_KINDS.includes(m.kind) && selecting?.has(m.id)).map(m => m.id);
+    return {first: ids[0], last: ids.at(-1)};
+  }
   function messageHTML(m, i, list) {
     const day = i === 0 || new Date(list[i - 1].at).toDateString() !== new Date(m.at).toDateString() ? `<div class="day">${dayLabel(m.at)}</div>` : '';
     if (LINE_KINDS.includes(m.kind)) return day + lineHTML(m);
     const me = m.from === 'me', group = thread.type === 'group', picked = selecting?.has(m.id);
     const quoted = m.quote ? `<span class="m-quote">${esc(you(m.quote.from))}：${esc(m.quote.text)}</span>` : '';
-    return day + `<div class="msg${me ? ' me' : ''}" data-engine="${me ? 'none' : engine(m.from)}" data-kind="${m.kind}" data-mid="${esc(m.id)}"${picked ? ' data-picked' : ''}>${selecting ? '<span class="pick" aria-hidden="true"></span>' : ''}${me ? `<span class="me-side">${myAvatar(34)}</span>` : `<span class="pat-target" data-pat="${esc(m.from)}" title="双击拍一拍">${avatar(m.from, engine(m.from), 34)}</span>`}<div class="m-body">${group && !me ? `<span class="m-name">${esc(m.from)}</span>` : ''}${bodyHTML(m)}${quoted}</div></div>`;
+    return day + (picked && m.id === edges.first ? rangeBar('start') : '') + `<div class="msg${me ? ' me' : ''}" data-engine="${me ? 'none' : engine(m.from)}" data-kind="${m.kind}" data-mid="${esc(m.id)}"${picked ? ' data-picked' : ''}>${selecting ? '<span class="pick" aria-hidden="true"></span>' : ''}${me ? `<span class="me-side">${myAvatar(34)}</span>` : `<span class="pat-target" data-pat="${esc(m.from)}" title="双击拍一拍">${avatar(m.from, engine(m.from), 34)}</span>`}<div class="m-body">${group && !me ? `<span class="m-name">${esc(m.from)}</span>` : ''}${bodyHTML(m)}${quoted}</div></div>` + (picked && m.id === edges.last ? rangeBar('end') : '');
   }
   function toolsHTML() {
     const group = thread.type === 'group';
@@ -256,16 +264,17 @@ export function chatApp(ctx) {
     const bring = pendingBring(), scroller = v.root.querySelector('.msgs'), atBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
     const focused = ctx.doc.activeElement?.dataset?.field === 'draft' && v.root.contains(ctx.doc.activeElement);
     const list = thread.messages;
+    edges = selecting?.size ? pickEdges() : {};
     const look = profile();
     const bg = look.backgroundPhoto ? 'photo' : look.background, scene = chatScene(bg);
     v.draw(`<div class="chat-thread${selecting ? ' selecting' : ''}" data-bubble="${esc(look.bubble)}" data-bg="${esc(bg)}"${scene ? ` data-scene data-tone="${sceneDark(bg) ? 'dark' : 'light'}"` : ''}>
       <div class="th-head" data-engine="${group ? 'none' : engine(thread.members[0])}">${threadAvatar(thread, 38)}<div class="th-title"><strong>${esc(thread.name)}</strong><small>${esc(sub)}</small></div>
         ${btn('bring', selecting ? '取消' : icon('book') + '<span class="bring-label">带进剧情</span>', 'chip-button', selecting ? '' : 'aria-label="带进剧情" title="带进剧情"')}${!group && api.callDial ? btn('call', icon('phone'), 'round-button call-go', 'aria-label="语音通话"') : ''}${btn('thread-menu', icon('more'), 'round-button', 'aria-label="更多"')}</div>
-      <div class="msgs-wrap">${scene}<div class="msgs" role="log" aria-live="polite">${list.length ? list.map((m, i) => messageHTML(m, i, list)).join('') : `<p class="chat-empty">${live ? '发几条消息都行，发完点右下角的气泡按钮让对方回复；输入框空着时发送键就会变成它。也可以直接点它，让对方先开口。' : '在酒馆里打开小手机时，联系人才会回复。'}</p>`}
+      <div class="msgs-wrap">${scene}<div class="msgs" role="log" aria-live="polite" data-keep-scroll="msgs-${esc(threadId)}">${list.length ? list.map((m, i) => messageHTML(m, i, list)).join('') : `<p class="chat-empty">${live ? '发几条消息都行，发完点右下角的气泡按钮让对方回复；输入框空着时发送键就会变成它。也可以直接点它，让对方先开口。' : '在酒馆里打开小手机时，联系人才会回复。'}</p>`}
         ${bring?.threadId === threadId ? `<div class="sys">${icon('book')}${bring.count} 条消息会带进下一次正文 ${btn('cancel-bring', '取消', 'text-button')}</div>` : ''}
         ${typing() ? `<div class="msg" data-engine="${group ? 'none' : engine(thread.members[0])}">${avatar(group ? '…' : thread.members[0], group ? 'none' : engine(thread.members[0]), 34)}<div class="m-body"><div class="chat-bubble typing" aria-label="对方正在输入"><i></i><i></i><i></i></div></div></div>` : ''}</div></div>
       ${selecting
-        ? `<div class="bring-bar"><span>${selecting.size ? `已选 ${selecting.size} 条` : '点消息来选择'}</span>${btn('bring-go', '带进下一次正文', 'primary', selecting.size ? '' : 'disabled')}</div>`
+        ? `<div class="bring-bar"><span>${selecting.size ? `已选 ${selecting.size} 条` : '点一条消息开始，再拖上下的条条多选'}</span>${btn('bring-go', '带进下一次正文', 'primary', selecting.size ? '' : 'disabled')}</div>`
         : composerHTML()}
     </div>`);
     const msgs = v.root.querySelector('.msgs');
@@ -852,6 +861,51 @@ export function chatApp(ctx) {
   v.on('keydown', '[data-field=draft]', (el, e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); return send(); } });
   // Typing closes the + panel, like a phone keyboard replacing it.
   v.on('focusin', '[data-field=draft]', () => { if (panel) { panel = null; syncPanel(); } });
+  v.on('pointerdown', '.range-bar', (bar, e) => {
+    if (!selecting || e.button > 0) return;
+    e.preventDefault();
+    const box = v.root.querySelector('.msgs'), edge = bar.dataset.edge, win = ctx.win;
+    const rows = [...box.querySelectorAll('.msg[data-mid]')], ids = rows.map(r => r.dataset.mid);
+    const base = new Set(selecting), at = ids.map((id, i) => base.has(id) ? i : -1).filter(i => i >= 0);
+    if (!at.length) return;
+    const lo = at[0], hi = at.at(-1);
+    let picked = base, y = e.clientY, raf = 0;
+    try { bar.setPointerCapture(e.pointerId); } catch { /* an old browser: the bar still follows inside the list */ }
+    bar.classList.add('dragging');
+    // The message under the finger: the nearest by its middle.
+    const nearest = () => { let best = 0, gap = Infinity; rows.forEach((r, i) => { const b = r.getBoundingClientRect(), d = Math.abs((b.top + b.bottom) / 2 - y); if (d < gap) { gap = d; best = i; } }); return best; };
+    function apply() {
+      const i = nearest(), from = edge === 'start' ? Math.min(i, hi) : lo, to = edge === 'end' ? Math.max(i, lo) : hi;
+      // The span before the drag keeps its choices; what the bar newly passes is taken in.
+      picked = new Set(ids.filter((id, k) => k >= from && k <= to && (k < lo || k > hi || base.has(id))));
+      rows.forEach((r, k) => r.toggleAttribute('data-picked', picked.has(ids[k])));
+      const first = rows.find((r, k) => picked.has(ids[k])), last = [...rows].reverse().find((r, k) => picked.has(ids[rows.length - 1 - k]));
+      const start = box.querySelector('.range-bar[data-edge=start]'), end = box.querySelector('.range-bar[data-edge=end]');
+      if (first && start) first.before(start);
+      if (last && end) last.after(end);
+      const label = v.root.querySelector('.bring-bar span');
+      if (label) label.textContent = `已选 ${picked.size} 条`;
+    }
+    // Near the top or bottom edge the list scrolls on its own, so a long stretch can be taken in one drag.
+    function scroll() {
+      const b = box.getBoundingClientRect(), speed = y < b.top + 48 ? -Math.ceil((b.top + 48 - y) / 4) : y > b.bottom - 48 ? Math.ceil((y - b.bottom + 48) / 4) : 0;
+      if (speed) { box.scrollTop += speed; apply(); }
+      raf = win.requestAnimationFrame(scroll);
+    }
+    const move = ev => { y = ev.clientY; apply(); };
+    const up = () => {
+      win.cancelAnimationFrame(raf);
+      bar.removeEventListener('pointermove', move);
+      bar.removeEventListener('pointerup', up);
+      bar.removeEventListener('pointercancel', up);
+      selecting = picked;
+      render();
+    };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', up);
+    bar.addEventListener('pointercancel', up);
+    raf = win.requestAnimationFrame(scroll);
+  });
   v.on('click', '.msg[data-mid]', el => {
     if (!selecting) return;
     const id = el.dataset.mid;
