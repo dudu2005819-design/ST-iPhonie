@@ -116,8 +116,24 @@ export function presetsApp(ctx) {
         + num('epic', '几份总结再合成长期总览', m.epic ?? 4, 2, 20, '长期总览也会继续往上合，记忆再长也不会越带越多。')
         + num('recall', '每次想起几段旧聊天', m.recall ?? 3, 0, 10, '按最近几句话，从更早的原话里找出最相关的几段一起带上（0 不找）。默认在本地找，不花钱；在「引擎 → 向量模型」里填了 Embedding 接口后按意思找，更准。')
         + toggle('memory.story', '正文也带上手机里的事', m.story === true, '写正文时，把你和当前角色卡里的角色在手机上聊过的事（记忆和最近 10 条聊天）告诉模型，插在「带进剧情」的位置。会多占一些正文的上下文。') : ''}
+      ${storyFields(m)}
     </div></details>`;
   }
+  /**
+   * 剧情记忆来源: other plugins' story memory (剧情剪辑台, the tavern's 总结, or any that puts it into the tavern's
+   * extension prompts) read into the phone's requests as 更早的剧情. The ones there now are listed to pick from.
+   */
+  function storyFields(m) {
+    const keys = m.storyKeys || [], list = storyList;
+    const rows = list ? (list.length ? list.map(x => `<label class="story-source"><span><b>${esc(x.name || x.key)}</b>${x.name ? `<small class="mono">${esc(x.key)}</small>` : ''}<small>${x.chars ? `${x.chars} 字 · ${esc(x.preview)}${x.chars > 90 ? '…' : ''}` : '现在是空的'}</small></span><input type="checkbox" class="switch" data-story-key="${esc(x.key)}" aria-label="读 ${esc(x.name || x.key)}" ${keys.includes(x.key) ? 'checked' : ''}></label>`).join('')
+      : '<p class="hint">酒馆现在没有注入任何扩展提示词。记忆插件一般在聊过几轮、或者生成过一次后才会有内容。</p>') : '';
+    return `<div class="story-field"><span>剧情记忆来源${help('小手机只看最近几条正文。装了记忆插件（剧情剪辑台、酒馆自带的总结，或者别的把整理好的剧情注入给模型的插件）的话，勾上它注入的那一项，聊天、电话、查手机、朋友圈和论坛就会多带一段「更早的剧情」，记得很久以前的事。\n\n点「读取」列出酒馆现在注入的内容，看开头就知道是哪个插件的。剧情剪辑台和酒馆总结默认就勾着。把记忆写进世界书的插件不用勾，小手机本来就读世界书。')}</span>
+      <small class="hint" style="margin:0">${keys.length ? '在读：' + keys.map(k => esc(storyName(k))).join('、') : '没有在读'}</small>
+      ${api.storySources ? `<div class="actions" style="margin:6px 0 0">${btn('story-sources', icon('refresh') + (list ? '重新读取' : '读取当前注入的内容'), 'secondary')}</div>` : ''}
+      ${list ? `<div class="story-sources">${rows}</div>` : ''}</div>`;
+  }
+  const storyName = key => storyList?.find(x => x.key === key)?.name || ({bakemono_memory: '剧情剪辑台', '1_memory': '酒馆总结'})[key] || key;
+  let storyList = null;
   function renderEditor() {
     const p = current, o = ops(currentKind), draw = currentKind === 'draw', chat = currentKind === 'chat';
     const used = p.id && p.id === o.active();
@@ -179,6 +195,15 @@ export function presetsApp(ctx) {
     const summary = el.closest('details')?.querySelector('summary');
     if (summary) summary.textContent = (entry.title || '未命名条目') + engineScope(entry) + (entry.enabled ? '' : ' · 已停用');
     mark();
+  });
+  v.on('change', '[data-story-key]', el => {
+    if (!current) return;
+    const keys = new Set(current.memory?.storyKeys || []);
+    if (el.checked) keys.add(el.dataset.storyKey); else keys.delete(el.dataset.storyKey);
+    current.memory = {...current.memory, storyKeys: [...keys]};
+    mark();
+    const line = el.closest('.story-field')?.querySelector('small.hint');
+    if (line) line.textContent = keys.size ? '在读：' + [...keys].map(storyName).join('、') : '没有在读';
   });
   v.on('change', '[data-use]', el => {
     const entry = current?.entries[Number(el.closest('[data-entry]')?.dataset.entry)];
@@ -248,6 +273,11 @@ export function presetsApp(ctx) {
       case 'delete-preset':
         if (await ctx.confirm('删除这个预设？', '角色配音和画风不会被删除。')) { ops(currentKind).remove(current.id); drafts.delete(currentKind + ':' + current.id); current = null; render(); }
         break;
+      case 'story-sources': {
+        try { storyList = api.storySources(); } catch (error) { ctx.notify(error.message, {error: true}); break; }
+        render();
+        break;
+      }
       case 'prompt-preview': {
         const o = ops(currentKind), error = o.validate(current);
         if (error) throw Error(error);

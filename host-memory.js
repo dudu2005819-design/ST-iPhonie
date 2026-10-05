@@ -2,7 +2,7 @@
 // gives the chat, call, 查手机, 朋友圈 and (when switched on) story requests what a chat remembers: the written-up
 // layers and the older messages that match what is being talked about now. Writing uses the 文字模型 and costs one
 // request per summary; searching is local unless a 向量模型 is set up.
-import {nextBatch, nextMerge, addNode, buildMemoryRequest, parseMemory, memoryText, chunks, recall, recallText, textKey, transcript, roots} from './core/memory.js';
+import {nextBatch, nextMerge, addNode, buildMemoryRequest, parseMemory, memoryText, chunks, recall, recallText, textKey, transcript, roots, storyMemoryText, STORY_MEMORY} from './core/memory.js';
 import {activeChatPreset} from './core/chat.js';
 
 // How many requests one go may make: after a reply only a little (a long backlog is caught up over several replies),
@@ -168,7 +168,20 @@ export function createMemoryHost({context, settings, backend, notice = () => {}}
   // when the open card or the settings change).
   const unsubscribe = backend.subscribe?.(event => { if (event.type === 'chat' && !event.typing) refreshStory(); });
 
+  /** 更早的剧情: what the picked memory plugins put into the tavern's extension prompts. */
+  function storyMemory() { return storyMemoryText(context()?.extensionPrompts, options().storyKeys); }
+  /** Every extension prompt there is now (not the phone's own), for picking which hold story memory. */
+  function storySources() {
+    const prompts = context()?.extensionPrompts || {}, picked = new Set(options().storyKeys);
+    const found = Object.entries(prompts).filter(([key, p]) => !key.startsWith('sttts.') && typeof p?.value === 'string' && p.value.trim())
+      .map(([key, p]) => ({key, name: STORY_MEMORY[key] || '', chars: p.value.trim().length, preview: p.value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 90), picked: picked.has(key)}));
+    // Picked keys that have nothing in them right now are listed too, so they can be unpicked.
+    for (const key of picked) if (!found.some(x => x.key === key)) found.push({key, name: STORY_MEMORY[key] || '', chars: 0, preview: '', picked: true});
+    return found;
+  }
+
   return {
+    storyMemory, storySources,
     tidy, after, contextFor, aboutPeople, storyPlan, storyReady, refreshStory,
     status: threadId => ({...status.get(threadId), busy: busy.has(threadId), ...(storyError ? {storyError} : {})}),
     close() { closed = true; clearTimeout(storyTimer); unsubscribe?.(); }

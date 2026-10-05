@@ -26,13 +26,14 @@ export function postLines(post, user, max = 30) {
  * The request for 论坛, with the chat preset's rules used in 论坛. mode 'posts': new posts and the 热搜;
  * 'react': replies to the user's new post; 'reply': answers to the user's reply. people: [{name, persona, card}].
  */
-export function buildForumRequest({preset, mode = 'posts', people, story = [], user = '我', userPersona = '', recent = [], hot = [], post = null, reply = null, lore = ''}) {
+export function buildForumRequest({preset, mode = 'posts', people, story = [], user = '我', userPersona = '', recent = [], hot = [], post = null, reply = null, lore = '', earlier = ''}) {
   const rules = preset.entries.filter(e => e.enabled && e.text.trim() && (e.use || []).includes('forum')).map(e => fill(e.text, {'用户': user}));
   const system = [
     rules.join('\n\n'),
     people.length ? `【论坛里的角色】（他们在论坛上用自己的名字）\n${people.map(p => `- ${p.name}：${(p.persona || p.card || '').trim() || '（没有资料，按剧情里的表现来）'}`).join('\n')}` : '',
     lore.trim() ? `【世界书】（这些人物和这个世界的设定：人设、口音、方言、说话方式都按这里来）\n${lore.trim()}` : '',
     userPersona.trim() ? `【${user}】\n${userPersona.trim()}` : '',
+    earlier.trim() ? `【更早的剧情】（记忆插件整理的长期剧情，只作背景参考）\n${earlier.trim()}` : '',
     story.length ? `【最近的剧情】（只作背景参考）\n${story.map(s => `${s.name}：${s.text}`).join('\n')}` : '',
     mode === 'posts' && hot.length ? `【之前的热搜】（可以延续，也可以换新的）\n${hot.join('\n')}` : '',
     mode === 'posts' && recent.length ? `【最近的帖子】（不要重复这些内容）\n${recent.map(p => `${who(p.author, user)}｜${p.title}`).join('\n')}` : '',

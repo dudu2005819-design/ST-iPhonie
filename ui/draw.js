@@ -78,7 +78,7 @@ export function drawApp(ctx) {
     if (tab === 'prompt') body = `
       <div class="group pad">${field('这张图的提示词', textArea('prompt', prompt, 'rows="4" placeholder="英文 tag，逗号分隔，例如 2girls, rainy day, cafe window, sharing an umbrella"'), e === 'gpt' ? '会和画风的固定正面、每个角色的外貌一起整理成一段英文描述发给 GPT。画师串、权重括号和负面不会发给 GPT。' : e === 'comfy' ? '实际发送：画师串 + 固定正面 + 这里的提示词，后面接上每个角色的外貌；NovelAI 的权重写法会自动换成 ComfyUI 的。' : '实际发送：画师串 + 固定正面 + 这里的提示词。')}
         <div class="token-meter" data-token-meter="positive" hidden></div>
-        <div class="field idea-field"><span>想画什么${help('用中文说一句就行，比如「下雨天两个人在便利店门口共撑一把伞」，点「帮我写」，模型会补成完整的英文提示词填到上面（会换掉上面原来的）。「角色」里加了的人，外貌插件会自动加，模型只写他们在做什么。用 NovelAI 时会按 token 上限尽量写满。')}</span><div class="inline-row">${input('idea', idea, 'text', 'maxlength="300" placeholder="例如：下雨天两个人共撑一把伞" autocomplete="off"')}${btn('write-prompt', icon('wand') + '帮我写', 'secondary')}</div></div>
+        <div class="field idea-field"><span>想画什么${help('用中文说一句就行，比如「下雨天两个人在便利店门口共撑一把伞」，也可以写很多要求（框会跟着变高），点「帮我写」，模型会补成完整的英文提示词填到上面（会换掉上面原来的）。「角色」里加了的人，外貌插件会自动加，模型只写他们在做什么。用 NovelAI 时会按 token 上限尽量写满。')}</span>${textArea('idea', idea, 'class="idea-box" rows="2" maxlength="1000" placeholder="例如：下雨天两个人共撑一把伞。可以写很多要求：动作、表情、衣服、天气、镜头……"')}<div class="actions" style="margin:6px 0 0">${btn('write-prompt', icon('wand') + '帮我写', 'secondary')}</div></div>
         <div class="actions" style="margin-top:0">${btn('suggest', icon('book') + '从剧情生成', 'secondary')}</div>
         ${e === 'gpt' ? '' : field('这张图额外的负面', textArea('negative', negative, 'rows="2" placeholder="可以留空，会和固定负面合在一起"')) + '<div class="token-meter" data-token-meter="negative" hidden></div>'}</div>`;
     if (tab === 'chars') body = (characters.length ? characters.map((c, i) => `
@@ -146,6 +146,7 @@ export function drawApp(ctx) {
     // A new picture goes on top of the column: show it.
     if (newest) { newest = false; const side = v.root.querySelector('.canvas-side'); if (side) side.scrollTop = 0; }
     meters();
+    grow(v.root.querySelector('[data-field=idea]'));
   }
 
   /**
@@ -154,6 +155,8 @@ export function drawApp(ctx) {
    * the user types; the vocabulary loads the first time.
    */
   let meterTicket = 0;
+  /** 想画什么 grows with what is written (browsers without field-sizing), up to about ten lines, then scrolls. */
+  function grow(el) { if (!el || ctx.win.CSS?.supports?.('field-sizing', 'content')) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight + 2, 260) + 'px'; }
   async function meters() {
     const boxes = [...v.root.querySelectorAll('[data-token-meter]')], budget = eng() === 'nai' ? tokenBudget(state().params.model) : null;
     if (!boxes.length) return;
@@ -244,7 +247,7 @@ export function drawApp(ctx) {
 
   v.on('input', '[data-field]', el => {
     const key = el.dataset.field;
-    if (key === 'idea') idea = el.value;
+    if (key === 'idea') { idea = el.value; grow(el); }
     else if (key === 'prompt') { prompt = el.value; meters(); }
     else if (key === 'negative') { negative = el.value; meters(); }
     else if (key === 'char') { characters[Number(el.dataset.index)].prompt = el.value; meters(); }

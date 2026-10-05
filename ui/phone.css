@@ -1593,3 +1593,15 @@ button.gift-item[data-short]{opacity:.55}
 .chat-thread[data-bubble=galaxy] .msg.me .chat-bubble:not(.typing)::before,.deco[data-bubble=galaxy] .deco-sample::before{content:"";position:absolute;top:-9px;right:-6px;width:19px;height:19px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.5c.8 5 2.6 7.6 9.5 10.5-6.9 2.9-8.7 5.5-9.5 10.5-.8-5-2.6-7.6-9.5-10.5C9.4 9.1 11.2 6.5 12 1.5z' fill='%23fff' stroke='%238f7cff' stroke-width='1'/%3E%3C/svg%3E") center/contain no-repeat;pointer-events:none;filter:drop-shadow(0 1px 1.5px #0004);animation:star-twinkle 2.8s ease-in-out infinite}
 .chat-thread[data-bubble=glass] .msg.me .chat-bubble:not(.typing)::before,.deco[data-bubble=glass] .deco-sample::before{content:"";position:absolute;top:-9px;right:-6px;width:19px;height:19px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='%237cc8ff' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7'/%3E%3Cpath d='m9 4 3 2.5L15 4M9 20l3-2.5 3 2.5' fill='none'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='2.2' fill='%23fff'/%3E%3C/svg%3E") center/contain no-repeat;pointer-events:none;filter:drop-shadow(0 1px 1.5px #0004)}
 .chat-thread[data-bubble=aurora] .msg.me .chat-bubble:not(.typing)::before,.deco[data-bubble=aurora] .deco-sample::before{content:"";position:absolute;top:-9px;right:-6px;width:19px;height:19px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.5c.8 5 2.6 7.6 9.5 10.5-6.9 2.9-8.7 5.5-9.5 10.5-.8-5-2.6-7.6-9.5-10.5C9.4 9.1 11.2 6.5 12 1.5z' fill='%23c6f8ff' stroke='%23a98bff' stroke-width='1.2'/%3E%3C/svg%3E") center/contain no-repeat;pointer-events:none;filter:drop-shadow(0 1px 1.5px #0004);animation:star-twinkle 2.8s ease-in-out infinite}
+/* 想画什么 (ui/draw.js): grows with long requests instead of hiding them */
+.idea-box{width:100%;box-sizing:border-box;min-height:64px;max-height:260px;resize:vertical;line-height:1.55;field-sizing:content}
+/* 剧情记忆来源 in the chat preset (ui/presets.js) */
+.story-sources{display:grid;gap:6px;margin-top:8px}
+.story-sources .story-source{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:14px;background:var(--card2);cursor:pointer}
+.story-source>span{flex:1;display:grid;gap:2px;min-width:0}
+.story-source b{font-size:13.5px;display:block}
+.story-source small{font-size:11.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.story-source small.mono{display:block;-webkit-line-clamp:1}
+.story-source .switch{flex-shrink:0}
+.story-field{display:flex;flex-direction:column;gap:7px;margin:14px 0;min-width:0}
+.story-field>span:first-child{font-size:13px;font-weight:800;display:flex;align-items:center;gap:6px}

@@ -196,7 +196,7 @@ export interface TextSettings { source: 'tavern' | 'custom'; active: string; pre
 /** 向量模型: an OpenAI-compatible Embeddings API; off = 记忆 searches locally. */
 export interface EmbedSettings { enabled: boolean; url: string; model: string; }
 /** 记忆: batch = messages per 聊天摘要, stage = 摘要 per 阶段总结, epic = nodes per higher merge, recall = old pieces brought back, story = also into the story. */
-export interface MemoryOptions { enabled: boolean; batch: number; stage: number; epic: number; recall: number; story: boolean; }
+export interface MemoryOptions { enabled: boolean; batch: number; stage: number; epic: number; recall: number; story: boolean; /** extension prompt keys read as 更早的剧情 */ storyKeys: string[]; }
 /** A summary: level 0 聊天摘要, 1 阶段总结, 2+ 长期总览; coveredBy: the higher one it was merged into ('' = sent to the model). */
 export interface MemoryNode { id: string; level: number; text: string; from: number; to: number; count: number; covers: string[]; coveredBy: string; at: number; edited?: boolean; }
 export interface MemoryBook { id: string; kind: 'memory'; threadId: string; name: string; at: number; through: string; throughAt: number; nodes: MemoryNode[]; }
@@ -745,6 +745,8 @@ export interface BackendAPI extends BackendFacade {
     /** 立即整理: writes up what is due in the chat's memory; resolves with how many summaries were written. */
     memoryTidy(threadId: string): Promise<number>;
     memoryStatus(threadId: string): MemoryStatus;
+    /** The extension prompts injected now (other plugins'), to pick which hold story memory; name: a known memory plugin. */
+    storySources(): Array<{ key: string; name: string; chars: number; preview: string; picked: boolean }>;
     peekBusy(): boolean;
     /** Draws one album photo of a character's phone with NovelAI; allowPaid when it would cost Anlas. */
     /** index 'wallpaper' draws the wallpaper. */

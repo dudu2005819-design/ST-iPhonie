@@ -12,14 +12,28 @@ import {messageLine} from './chat.js';
 
 export const MEMORY_LIMITS = Object.freeze({batch: [10, 200], stage: [2, 20], epic: [2, 20], recall: [0, 10], text: 6000, nodes: 600, chunk: 8, cap: 8000});
 export function defaultMemory() {
-  // story: the memory also goes into the story's own requests (off: it takes room there).
-  return {enabled: true, batch: 40, stage: 5, epic: 4, recall: 3, story: false};
+  // story: the memory also goes into the story's own requests (off: it takes room there). storyKeys: the extension
+  // prompts other plugins inject that hold the story's long memory, read into the phone's requests (更早的剧情).
+  return {enabled: true, batch: 40, stage: 5, epic: 4, recall: 3, story: false, storyKeys: Object.keys(STORY_MEMORY)};
+}
+/** Extension prompts of memory plugins the phone knows by name (any other can be picked by hand). */
+export const STORY_MEMORY = Object.freeze({bakemono_memory: '剧情剪辑台', '1_memory': '酒馆总结'});
+/** The story memory other plugins put into the tavern's extension prompts, for the phone's requests ('' without). */
+export function storyMemoryText(prompts, keys, cap = 4000) {
+  const parts = [];
+  for (const key of keys || []) {
+    const value = String(prompts?.[key]?.value ?? '').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
+    if (value) parts.push(value);
+  }
+  const text = parts.join('\n\n');
+  return text.length > cap ? '……' + text.slice(-cap) : text;
 }
 const count = (value, [min, max], fallback) => { const n = Math.round(Number(value)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
 export function normalizeMemory(value) {
   const base = defaultMemory(), v = value && typeof value === 'object' ? value : {};
   return {enabled: v.enabled !== false, batch: count(v.batch, MEMORY_LIMITS.batch, base.batch), stage: count(v.stage, MEMORY_LIMITS.stage, base.stage),
-    epic: count(v.epic, MEMORY_LIMITS.epic, base.epic), recall: count(v.recall, MEMORY_LIMITS.recall, base.recall), story: v.story === true};
+    epic: count(v.epic, MEMORY_LIMITS.epic, base.epic), recall: count(v.recall, MEMORY_LIMITS.recall, base.recall), story: v.story === true,
+    storyKeys: Array.isArray(v.storyKeys) ? [...new Set(v.storyKeys.map(k => String(k).trim().slice(0, 120)).filter(k => k && !k.startsWith('sttts.')))].slice(0, 20) : base.storyKeys};
 }
 
 // ---------- The book: one per chat ----------

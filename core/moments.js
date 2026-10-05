@@ -39,7 +39,7 @@ export function postLines(post, user) {
  * The request for moments, with the chat preset's rules used in 朋友圈. mode 'posts': new posts from the people; 'react': reactions to one post (the user's new post);
  * 'reply': answers to the user's comment on a post. people: [{name, persona, card}]. recent: latest posts, for variety.
  */
-export function buildMomentsRequest({preset, mode = 'posts', people, story = [], user = '我', userPersona = '', recent = [], post = null, comment = null, images = true, lore = '', memory = ''}) {
+export function buildMomentsRequest({preset, mode = 'posts', people, story = [], user = '我', userPersona = '', recent = [], post = null, comment = null, images = true, lore = '', memory = '', earlier = ''}) {
   const values = {'用户': user};
   const rules = preset.entries.filter(e => e.enabled && e.text.trim() && (e.use || []).includes('moments')).filter(e => images || e.id !== 'm-picture').map(e => fill(e.text, values));
   const names = people.map(p => p.name);
@@ -48,6 +48,7 @@ export function buildMomentsRequest({preset, mode = 'posts', people, story = [],
     `【朋友圈里的人】\n${people.map(p => `- ${p.name}：${(p.persona || p.card || '').trim() || '（没有资料，按剧情里的表现来）'}`).join('\n')}`,
     lore.trim() ? `【世界书】（这些人物和这个世界的设定：人设、口音、方言、说话方式都按这里来）\n${lore.trim()}` : '',
     userPersona.trim() ? `【${user}】\n${userPersona.trim()}` : '',
+    earlier.trim() ? `【更早的剧情】（记忆插件整理的长期剧情，只作背景参考）\n${earlier.trim()}` : '',
     story.length ? `【最近的剧情】（只作背景参考）\n${story.map(s => `${s.name}：${s.text}`).join('\n')}` : '',
     memory.trim() ? `${memory.trim()}\n（这些是各人和${user}私下聊过的事：只有那个人自己知道，别人的动态和评论里不要提）` : '',
     recent.length && mode === 'posts' ? `【最近的朋友圈】（不要重复这些内容）\n${recent.map(p => postLines(p, user)).join('\n')}` : '',

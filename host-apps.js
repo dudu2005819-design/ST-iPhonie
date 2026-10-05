@@ -43,7 +43,7 @@ export function createAppsHost({context, settings, backend, memory = null}) {
       const {preset, crowd, user} = base();
       const recent = (await backend.apps.list('forum')).filter(p => inSpace(p, backend.here())).slice(0, 8), hot = (await backend.apps.get(backend.hotId()))?.topics || [];
       const story = storyLines(ctx.chat, preset.context, user);
-      const prompt = buildForumRequest({preset, mode: 'posts', people: crowd, story, user, userPersona: userPersona(), recent, hot, lore: await lore(preset, crowd, story, [...hot, ...recent.map(p => p.title)])});
+      const prompt = buildForumRequest({preset, earlier: memory?.storyMemory() || '', mode: 'posts', people: crowd, story, user, userPersona: userPersona(), recent, hot, lore: await lore(preset, crowd, story, [...hot, ...recent.map(p => p.title)])});
       const found = parseForum(await ask(ctx, prompt, preset), {user, mode: 'posts'});
       if (!found.posts.length) throw Error('这次没有刷出新帖子，可以再刷新一次');
       if (found.hot.length) await backend.setForumHot(found.hot);
@@ -57,7 +57,7 @@ export function createAppsHost({context, settings, backend, memory = null}) {
       const post = await backend.apps.get(postId);
       if (!post) throw Error('这个帖子已经不在了');
       const story = storyLines(ctx.chat, preset.context, user);
-      const prompt = buildForumRequest({preset, mode: 'react', people: crowd, story, user, userPersona: userPersona(), post, lore: await lore(preset, crowd, story, [post.title, post.text])});
+      const prompt = buildForumRequest({preset, earlier: memory?.storyMemory() || '', mode: 'react', people: crowd, story, user, userPersona: userPersona(), post, lore: await lore(preset, crowd, story, [post.title, post.text])});
       const found = parseForum(await ask(ctx, prompt, preset), {user, mode: 'react'});
       if (!found.replies.length) throw Error('这次没有人回复，可以再试一次');
       return backend.addForumReplies(postId, found.replies);
@@ -70,7 +70,7 @@ export function createAppsHost({context, settings, backend, memory = null}) {
       const post = await backend.apps.get(postId), mine = post?.replies.find(r => r.id === replyId);
       if (!post || !mine) throw Error('这条回复已经不在了');
       const story = storyLines(ctx.chat, preset.context, user);
-      const prompt = buildForumRequest({preset, mode: 'reply', people: crowd, story, user, userPersona: userPersona(), post, reply: mine, lore: await lore(preset, crowd, story, [post.title, mine.text])});
+      const prompt = buildForumRequest({preset, earlier: memory?.storyMemory() || '', mode: 'reply', people: crowd, story, user, userPersona: userPersona(), post, reply: mine, lore: await lore(preset, crowd, story, [post.title, mine.text])});
       const found = parseForum(await ask(ctx, prompt, preset), {user, mode: 'reply'});
       if (!found.replies.length) throw Error('这次没有人接话，可以再试一次');
       return backend.addForumReplies(postId, found.replies);
@@ -88,7 +88,7 @@ export function createAppsHost({context, settings, backend, memory = null}) {
       const history = thread ? (await backend.chats.get(thread.id)).messages.filter(m => m.kind !== 'system').slice(-20) : [];
       const story = storyLines(ctx.chat, preset.context, user);
       const remembered = memory ? await memory.aboutPeople([name]).catch(() => '') : '';
-      const prompt = buildPeekRequest({preset, person, story, user, userPersona: userPersona(), history, memory: remembered, images: !!backend.drawReady(), lore: await lore(preset, [person], story, history.map(m => m.text || ''))});
+      const prompt = buildPeekRequest({preset, earlier: memory?.storyMemory() || '', person, story, user, userPersona: userPersona(), history, memory: remembered, images: !!backend.drawReady(), lore: await lore(preset, [person], story, history.map(m => m.text || ''))});
       const found = parsePeek(await ask(ctx, prompt, preset), {name, user});
       return backend.savePeek({name, ...found});
     });

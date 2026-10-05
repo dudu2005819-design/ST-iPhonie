@@ -239,6 +239,7 @@ function connect(source){
   peekLook:name=>{check();return appsHost.peekLook(name);},
   memoryTidy:threadId=>{check();return memoryHost.tidy(threadId,{force:true});},
   memoryStatus:threadId=>{check();return memoryHost.status(threadId);},
+  storySources:()=>{check();return memoryHost.storySources();},
   peekBusy:()=>{check();return appsHost.busy('peek');},
   peekDraw:(name,index,allowPaid)=>{check();return appsHost.peekDraw(name,index,{allowPaid});},
   callStatus:()=>{check();return callHost.status();},
