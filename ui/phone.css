@@ -1615,3 +1615,11 @@ button.gift-item[data-short]{opacity:.55}
 .range-bar.dragging span{background:var(--accent-btn);color:var(--card);box-shadow:0 4px 14px rgba(20,40,80,.25);transform:scale(1.05)}
 .selecting .msg:not([data-picked]){opacity:.62}
 .selecting .msg{transition:opacity .15s}
+
+/* A reply's messages come in one by one: each new bubble pops up from its side. */
+.msg.fresh{animation:msg-pop .42s cubic-bezier(.2,1.35,.45,1) both}
+.msg.fresh .chat-bubble{transform-origin:left bottom}
+.msg.me.fresh .chat-bubble{transform-origin:right bottom}
+@keyframes msg-pop{0%{opacity:0;transform:translateY(12px) scale(.82)}60%{opacity:1}100%{opacity:1;transform:none}}
+.msg.typing-row{animation:fade .2s both}
+@media (prefers-reduced-motion:reduce){.msg.fresh,.msg.typing-row{animation:none}}

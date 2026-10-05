@@ -105,6 +105,47 @@ export function chatApp(ctx) {
   const threadAvatar = (t, size = 48) => t.type === 'group' ? groupAvatar(t.members, size) : avatar(t.members[0], engine(t.members[0]), size);
   const pendingBring = () => api.chatPendingBring?.() || null;
   const typing = () => !!threadId && !!api.chatTyping?.(threadId);
+  // A reply comes in like on a phone: its messages are stored at once (memory, unread counts and other devices see
+  // them all), but the open chat shows the contact's new ones one by one, each after a typing bubble that lasts
+  // about as long as typing it would — a short one pops up quickly, a long one keeps the dots going a while.
+  const pace = {thread: null, seen: new Set(), hidden: new Set(), queue: [], timer: 0, fresh: null};
+  const AT_ONCE = ['system', 'recall', 'notice', 'pat'];
+  function typeTime(m, first) {
+    const len = [...String(m.text || '')].length;
+    const ms = m.kind === 'text' ? 420 + len * 55 : m.kind === 'voice' ? 1300 : 800;
+    // The first one: the model already took its time writing the reply.
+    return Math.round(Math.min(first ? 1100 : 3000, Math.max(first ? 250 : 500, ms)));
+  }
+  function track(list) {
+    if (pace.thread !== threadId) {
+      ctx.win.clearTimeout(pace.timer);
+      Object.assign(pace, {thread: threadId, seen: new Set(list.map(m => m.id)), hidden: new Set(), queue: [], timer: 0, fresh: null});
+      return;
+    }
+    const on = api.getState().chat.pace !== false;
+    for (const m of list) {
+      if (pace.seen.has(m.id)) continue;
+      pace.seen.add(m.id);
+      if (on && m.from !== 'me' && !AT_ONCE.includes(m.kind)) { pace.hidden.add(m.id); pace.queue.push(m); }
+    }
+    // Messages deleted while waiting (清空、重新回复) are not waited for.
+    const ids = new Set(list.map(m => m.id));
+    pace.queue = pace.queue.filter(m => ids.has(m.id));
+    for (const id of pace.hidden) if (!ids.has(id)) pace.hidden.delete(id);
+    if (pace.queue.length && !pace.timer) nextReveal(true);
+  }
+  function nextReveal(first) {
+    const m = pace.queue[0];
+    pace.timer = ctx.win.setTimeout(() => {
+      pace.timer = 0;
+      if (pace.queue[0] !== m) return;
+      pace.queue.shift();
+      pace.hidden.delete(m.id);
+      pace.fresh = m.id;
+      if (pace.queue.length) nextReveal(false);
+      if (mode === 'thread' && threadId === pace.thread) render();
+    }, typeTime(m, first));
+  }
   const partner = () => thread.type === 'group' ? '群里' : thread.members[0];
 
   // ---------- 消息 ----------
@@ -233,7 +274,7 @@ export function chatApp(ctx) {
     if (LINE_KINDS.includes(m.kind)) return day + lineHTML(m);
     const me = m.from === 'me', group = thread.type === 'group', picked = selecting?.has(m.id);
     const quoted = m.quote ? `<span class="m-quote">${esc(you(m.quote.from))}：${esc(m.quote.text)}</span>` : '';
-    return day + (picked && m.id === edges.first ? rangeBar('start') : '') + `<div class="msg${me ? ' me' : ''}" data-engine="${me ? 'none' : engine(m.from)}" data-kind="${m.kind}" data-mid="${esc(m.id)}"${picked ? ' data-picked' : ''}>${selecting ? '<span class="pick" aria-hidden="true"></span>' : ''}${me ? `<span class="me-side">${myAvatar(34)}</span>` : `<span class="pat-target" data-pat="${esc(m.from)}" title="双击拍一拍">${avatar(m.from, engine(m.from), 34)}</span>`}<div class="m-body">${group && !me ? `<span class="m-name">${esc(m.from)}</span>` : ''}${bodyHTML(m)}${quoted}</div></div>` + (picked && m.id === edges.last ? rangeBar('end') : '');
+    return day + (picked && m.id === edges.first ? rangeBar('start') : '') + `<div class="msg${me ? ' me' : ''}${m.id === pace.fresh ? ' fresh' : ''}" data-engine="${me ? 'none' : engine(m.from)}" data-kind="${m.kind}" data-mid="${esc(m.id)}"${picked ? ' data-picked' : ''}>${selecting ? '<span class="pick" aria-hidden="true"></span>' : ''}${me ? `<span class="me-side">${myAvatar(34)}</span>` : `<span class="pat-target" data-pat="${esc(m.from)}" title="双击拍一拍">${avatar(m.from, engine(m.from), 34)}</span>`}<div class="m-body">${group && !me ? `<span class="m-name">${esc(m.from)}</span>` : ''}${bodyHTML(m)}${quoted}</div></div>` + (picked && m.id === edges.last ? rangeBar('end') : '');
   }
   function toolsHTML() {
     const group = thread.type === 'group';
@@ -263,7 +304,10 @@ export function chatApp(ctx) {
     const sub = group ? `${thread.members.length} 人 · ${voiced} 人能发语音` : contacts.find(c => c.name === thread.members[0])?.source === 'manual' ? '手动联系人' : voiced ? '能发语音消息' : '还没有配音 · 只发文字';
     const bring = pendingBring(), scroller = v.root.querySelector('.msgs'), atBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
     const focused = ctx.doc.activeElement?.dataset?.field === 'draft' && v.root.contains(ctx.doc.activeElement);
-    const list = thread.messages;
+    track(thread.messages);
+    const list = thread.messages.filter(m => !pace.hidden.has(m.id)), waiting = pace.queue[0];
+    // Who the typing bubble is for: the next message waiting to show, or the contact while the reply is written.
+    const typer = typing() || waiting ? (waiting?.from || (group ? '' : thread.members[0])) : null;
     edges = selecting?.size ? pickEdges() : {};
     const look = profile();
     const bg = look.backgroundPhoto ? 'photo' : look.background, scene = chatScene(bg);
@@ -272,7 +316,7 @@ export function chatApp(ctx) {
         ${btn('bring', selecting ? '取消' : icon('book') + '<span class="bring-label">带进剧情</span>', 'chip-button', selecting ? '' : 'aria-label="带进剧情" title="带进剧情"')}${!group && api.callDial ? btn('call', icon('phone'), 'round-button call-go', 'aria-label="语音通话"') : ''}${btn('thread-menu', icon('more'), 'round-button', 'aria-label="更多"')}</div>
       <div class="msgs-wrap">${scene}<div class="msgs" role="log" aria-live="polite" data-keep-scroll="msgs-${esc(threadId)}">${list.length ? list.map((m, i) => messageHTML(m, i, list)).join('') : `<p class="chat-empty">${live ? '发几条消息都行，发完点右下角的气泡按钮让对方回复；输入框空着时发送键就会变成它。也可以直接点它，让对方先开口。' : '在酒馆里打开小手机时，联系人才会回复。'}</p>`}
         ${bring?.threadId === threadId ? `<div class="sys">${icon('book')}${bring.count} 条消息会带进下一次正文 ${btn('cancel-bring', '取消', 'text-button')}</div>` : ''}
-        ${typing() ? `<div class="msg" data-engine="${group ? 'none' : engine(thread.members[0])}">${avatar(group ? '…' : thread.members[0], group ? 'none' : engine(thread.members[0]), 34)}<div class="m-body"><div class="chat-bubble typing" aria-label="对方正在输入"><i></i><i></i><i></i></div></div></div>` : ''}</div></div>
+        ${typer !== null ? `<div class="msg typing-row" data-engine="${typer ? engine(typer) : 'none'}">${avatar(typer || '…', typer ? engine(typer) : 'none', 34)}<div class="m-body"><div class="chat-bubble typing" aria-label="对方正在输入"><i></i><i></i><i></i></div></div></div>` : ''}</div></div>
       ${selecting
         ? `<div class="bring-bar"><span>${selecting.size ? `已选 ${selecting.size} 条` : '点一条消息开始，再拖上下的条条多选'}</span>${btn('bring-go', '带进下一次正文', 'primary', selecting.size ? '' : 'disabled')}</div>`
         : composerHTML()}
@@ -281,6 +325,7 @@ export function chatApp(ctx) {
     if (scene) syncMotion(v.root, ctx.win);
     if (atBottom || stick) msgs.scrollTop = msgs.scrollHeight;
     stick = false;
+    pace.fresh = null;
     if (focused) v.root.querySelector('[data-field=draft]')?.focus({preventScroll: true});
     paintVoices();
     paintPhotos();
@@ -819,6 +864,7 @@ export function chatApp(ctx) {
       ${group ? `<button class="list-row" data-menu="rename">${icon('edit')}<span><strong>改群名</strong></span></button>` : ''}
       <button class="list-row" data-menu="memory">${icon('book')}<span><strong>记忆</strong><small>更早的聊天整理成的摘要和总结，可以改</small></span></button>
       <button class="list-row" data-menu="voice-text">${icon('book')}<span><strong>语音消息</strong><small>转文字显示什么、要不要自动转</small></span></button>
+      <button class="list-row" data-menu="pace">${icon('chat')}<span><strong>逐条显示回复：${api.getState().chat.pace !== false ? '开' : '关'}</strong><small>对方的消息像真人打字一样一条条出来；关掉就一次全显示</small></span></button>
       <button class="list-row" data-menu="clear">${icon('trash')}<span><strong>清空聊天记录</strong></span></button>
       <button class="list-row" data-menu="delete">${icon('close')}<span><strong>删除这段聊天</strong></span></button></div>`);
     d.body.addEventListener('click', e => {
@@ -832,6 +878,7 @@ export function chatApp(ctx) {
           r.body.addEventListener('click', ev => { if (ev.target.closest('[data-action=rename-save]')) { const name = r.body.querySelector('[data-field=rename]').value; r.close(); api.updateThread(threadId, {name}).catch(err => ctx.notify(err.message)); } });
         }
         if (action === 'voice-text') voiceTextSheet();
+        if (action === 'pace') { const on = api.getState().chat.pace === false; api.saveChatOptions({pace: on}); if (!on) { ctx.win.clearTimeout(pace.timer); pace.timer = 0; pace.queue = []; pace.hidden.clear(); render(); } ctx.notify(on ? '对方的消息会一条条出来' : '对方的消息会一次全显示'); }
         if (action === 'memory') memorySheet(ctx, {threadId, title: thread.name});
         if (action === 'clear' && await ctx.confirm('清空聊天记录？', '这段聊天会保留，消息全部删除。')) await api.deleteChatMessages(threadId, thread.messages.map(m => m.id));
         if (action === 'delete' && await ctx.confirm('删除这段聊天？', '聊天记录会一起删除，联系人不受影响。')) { await api.deleteThread(threadId); mode = 'list'; threadId = null; render(); }
@@ -1073,7 +1120,7 @@ export function chatApp(ctx) {
   v.onPlayback = () => { if (mode === 'thread') paintVoices(); };
   v.onMoments = () => { if (mode === 'list') render(); };
   const dispose = v.dispose;
-  v.dispose = () => { moments.dispose(); for (const url of photoURLs.values()) if (url) ctx.win.URL.revokeObjectURL(url); photoURLs.clear(); dispose(); };
+  v.dispose = () => { ctx.win.clearTimeout(pace.timer); moments.dispose(); for (const url of photoURLs.values()) if (url) ctx.win.URL.revokeObjectURL(url); photoURLs.clear(); dispose(); };
   render();
   return v;
 }

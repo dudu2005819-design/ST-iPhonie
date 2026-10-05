@@ -225,7 +225,9 @@ export interface ChatSettings { presets: ChatPreset[]; activePreset: string; con
     /** Avatar choices by name ('me' = the user); names not listed use the tavern's avatar, else the first letter. */
     avatars: Record<string, AvatarChoice>;
     /** One wallet for the whole phone. */
-    wallet: Wallet; }
+    wallet: Wallet;
+    /** 逐条显示回复: an open chat shows a reply's messages one by one, after a typing bubble as long as each message. */
+    pace: boolean; }
 /** 零钱 and its 明细 (newest first), decorations bought ('bubble:aurora'), the user's own shop gifts, gifts taken from characters. */
 export interface Wallet { balance: number; ledger: Array<{ id: string; at: number; amount: number; kind: string; note: string; who: string }>; owned: string[]; gifts: ShopGift[]; received: Array<{ id: string; at: number; from: string; name: string; emoji: string; note: string }>; }
 export interface ShopGift { id: string; name: string; emoji: string; price: number; note: string; /** true for a gift the user added */ own?: boolean; }
@@ -643,7 +645,7 @@ export interface BackendFacade {
     /** Takes (or returns) what a contact sent: red packet, transfer or gift. Money goes into the wallet, a gift into 收到的礼物. */
     takeSent(threadId: string, messageId: string, accept?: boolean): Promise<ChatThread>;
     shopCatalog(): { premium: Record<'bubble' | 'frame' | 'background', Record<string, [string, number]>>; kinds: Record<string, string>; gifts: ShopGift[]; ledgerKinds: Record<string, string> };
-    saveChatOptions(patch: { voiceText?: Partial<VoiceTextOptions>; profile?: Partial<ChatProfile>; starred?: string[]; /** null: back to the tavern's avatar */ avatars?: Record<string, AvatarChoice | null> }): ChatSettings;
+    saveChatOptions(patch: { pace?: boolean; voiceText?: Partial<VoiceTextOptions>; profile?: Partial<ChatProfile>; starred?: string[]; /** null: back to the tavern's avatar */ avatars?: Record<string, AvatarChoice | null> }): ChatSettings;
     saveContact(contact: Partial<Contact> & { name: string }): Contact;
     deleteContact(id: string): ChatSettings;
     /** Story roles (角色 App) first, then manual contacts. */

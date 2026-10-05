@@ -1188,6 +1188,7 @@ export class TTSBackend {
             next.chat.profile = normalizeProfile({ ...next.chat.profile, ...patch.profile });
         }
         if (Array.isArray(patch?.starred)) next.chat.starred = patch.starred;
+        if (patch?.pace !== undefined) next.chat.pace = patch.pace !== false;
         if (patch?.partition !== undefined) { if (!['none', 'card'].includes(patch.partition)) throw Error('分区方式无效'); next.chat.partition = patch.partition; }
         // avatars: {name: choice | null}; null goes back to the tavern's avatar (or the first letter).
         if (patch?.avatars && typeof patch.avatars === 'object') { const merged = { ...next.chat.avatars }; for (const [name, a] of Object.entries(patch.avatars)) { if (a) merged[name] = a; else delete merged[name]; } next.chat.avatars = normalizeAvatars(merged); }
