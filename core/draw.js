@@ -51,7 +51,7 @@ export const DEFAULT_DRAW_ENTRIES = Object.freeze([
   ].join('\n')},
   {id: 'cast', title: '角色', text: [
     "画面里每个看得见、能单独认出来的人写一行「角色」，按从左到右排，四段用｜隔开：名字｜这一刻的 tag｜不要出现的 tag｜站位。",
-    "名字：已登记的角色必须和名单一字不差。名单和固定外貌：{{角色列表}}。插件会把固定外貌补在最前面，你不用再写发色瞳色，只写这一张图里会变的东西。",
+    "名字：已登记的角色必须和名单一字不差。名单（括号里是性别）：{{角色列表}}。他们的固定外貌已经登记好，插件会按名字补在最前面，你不用再写发色瞳色，只写这一张图里会变的东西。",
     "这一刻的 tag 按这个顺序写：girl、boy 或 other（child、teenage 这类年龄 tag 也放这里；数字人数只放在场景里）→ 衣服和它此刻的状态（wet shirt、disheveled vest、loose necktie）→ 姿势（standing up、sitting in armchair、leaning forward、leaning back、kneeling）→ 动作 → 表情 → 视线。",
     "动作写到身体部位和对象：arms around another's neck、legs wrapped around another's waist、head on another's chest、hand slamming desk、holding teacup。tag 里不写任何人的名字——画图模型不认识剧情里的名字——别人一律写 another，必要时写 boy、girl；也不写比喻（像章鱼、像考拉），直接写身体在做什么。",
     "每个人都要有表情和视线，用真实存在的 tag，情绪叠两三个写足，比如 angry, furrowed brow, open mouth，或者 flustered, heavy blush, wide-eyed。表情如 smile、grin、laughing、blush、heavy blush、embarrassed、flustered、pout、frown、furrowed brow、surprised、wide-eyed、crying、tears、angry、shouting、glaring、serious、sad、worried、scared、smug、expressionless、half-closed eyes、open mouth；视线如 looking at viewer、looking at another、looking away、looking down、looking up、looking back、closed eyes。正文没写表情就推断一个。",
@@ -99,6 +99,18 @@ export const DEFAULT_DRAW_ENTRIES = Object.freeze([
     '名单里没有、但有名字的新角色第一次入画时，在这个出图块里加一行「新外貌」：名字｜固定外貌 tag。只写不会随场景变的特征：1girl 或 1boy、发型发色、瞳色、体型、显眼的特征，作品角色把识别 tag 放最前；不写衣服、表情、动作。名字照正文原文，中文名不要翻译或改成拼音。'
   ].join('\n')},
   {id: 'size', title: '画幅', text: '「画幅」写 竖、横、方 之一：单人、站姿、特写、贴得很近的两个人用竖；多人铺开、远景、全景用横。先想好镜头再定画幅，拿不准用竖。'}
+]);
+// 角色 as shipped up to 0.6.68 (its 名单 listed every appearance in full). Untouched copies get the current text.
+export const V09_DRAW_ENTRIES = Object.freeze([
+  {id: 'cast', title: '角色', text: [
+    "画面里每个看得见、能单独认出来的人写一行「角色」，按从左到右排，四段用｜隔开：名字｜这一刻的 tag｜不要出现的 tag｜站位。",
+    "名字：已登记的角色必须和名单一字不差。名单和固定外貌：{{角色列表}}。插件会把固定外貌补在最前面，你不用再写发色瞳色，只写这一张图里会变的东西。",
+    "这一刻的 tag 按这个顺序写：girl、boy 或 other（child、teenage 这类年龄 tag 也放这里；数字人数只放在场景里）→ 衣服和它此刻的状态（wet shirt、disheveled vest、loose necktie）→ 姿势（standing up、sitting in armchair、leaning forward、leaning back、kneeling）→ 动作 → 表情 → 视线。",
+    "动作写到身体部位和对象：arms around another's neck、legs wrapped around another's waist、head on another's chest、hand slamming desk、holding teacup。tag 里不写任何人的名字——画图模型不认识剧情里的名字——别人一律写 another，必要时写 boy、girl；也不写比喻（像章鱼、像考拉），直接写身体在做什么。",
+    "每个人都要有表情和视线，用真实存在的 tag，情绪叠两三个写足，比如 angry, furrowed brow, open mouth，或者 flustered, heavy blush, wide-eyed。表情如 smile、grin、laughing、blush、heavy blush、embarrassed、flustered、pout、frown、furrowed brow、surprised、wide-eyed、crying、tears、angry、shouting、glaring、serious、sad、worried、scared、smug、expressionless、half-closed eyes、open mouth；视线如 looking at viewer、looking at another、looking away、looking down、looking up、looking back、closed eyes。正文没写表情就推断一个。",
+    "镜头之外的身体部位不写：选了 upper body 或 close-up，就别再写鞋、袜、裙长和腿，否则模型会硬把它们画进来。",
+    "正文里没有名字、但作为一个具体的人出现的（店员、对手、抱着孩子的路人），也给他一行，名字就用正文对他的称呼，外貌在这一张图里写全；不要替他编名字，也不要登记。成群的人（人群、士兵、围观的学生）不单独写角色，画面需要时在场景里写成一群人。"
+  ].join('\n')}
 ]);
 // The engine entries shipped from 0.6.49 to 0.6.67 (their negatives named the wrong gender, which also removed the
 // other person in a picture of two). Untouched copies get the current text.
@@ -368,7 +380,7 @@ export function normalizeDraw(value) {
     if (entries.length === 1 && OLD_DEFAULT_RULES.includes(entries[0].text)) entries = DEFAULT_PRESET.entries;
     entries = entries.map(e => {
       const now = DEFAULT_DRAW_ENTRIES.find(x => x.id === e.id);
-      const old = [V05_DRAW_ENTRIES, V06_DRAW_ENTRIES, V07_DRAW_ENTRIES, V08_DRAW_ENTRIES].some(list => list.find(x => x.id === e.id)?.text === e.text);
+      const old = [V05_DRAW_ENTRIES, V06_DRAW_ENTRIES, V07_DRAW_ENTRIES, V08_DRAW_ENTRIES, V09_DRAW_ENTRIES].some(list => list.find(x => x.id === e.id)?.text === e.text);
       return now && old ? {...e, text: now.text} : e;
     });
     if (!(Number(p.rev) >= 2) && entries.some(e => e.id === 'cast') && !entries.some(e => e.id === 'tension')) {
@@ -416,13 +428,21 @@ export const activeStyle = draw => draw.styles.find(s => s.id === styleIdFor(dra
 const activePreset = (draw, preset) => preset || draw.presets.find(x => x.id === draw.activePreset) || draw.presets[0];
 const countOf = p => Math.min(DRAW_COUNT_MAX, Math.max(1, Math.round(Number(p.count)) || 1));
 
-/** 名单 for the rules: registered names with their fixed appearance. only: the story's speakers (story requests name
- *  nobody else, or the model takes them as the cast). */
+/** girl, boy or other from an appearance (its first gender tag); '' when it does not say. */
+export function genderOf(appearance) {
+  const m = String(appearance || '').toLowerCase().match(/\b(?:\d\+?)?(girls?|boys?|others?|female|male|woman|man)\b/);
+  return !m ? '' : /^(girl|female|woman)/.test(m[1]) ? 'girl' : /^(boy|male|man)/.test(m[1]) ? 'boy' : 'other';
+}
+/**
+ * 名单 for the rules: registered names, with the gender their appearance gives (for 1girl / 1boy). The appearances
+ * themselves are not sent: the plugin puts them in by name, and listing every one in full cost a lot of tokens.
+ * only: the story's speakers (story requests name nobody else, or the model takes them as the cast).
+ */
 export function castList(settings, only = null) {
   const wanted = Array.isArray(only) ? new Set(only.map(n => String(n).trim())) : null;
   const roles = settings.routes.filter(r => !isPlaceholderRole(r.name) && (!wanted || wanted.has(r.name)));
   if (!roles.length) return wanted ? '（这段剧情里还没有登记的角色）' : '（还没有登记的角色）';
-  return roles.map(r => r.appearance?.trim() ? `${r.name}（${r.appearance.trim().slice(0, 160)}）` : `${r.name}（还没有外貌）`).join('；');
+  return roles.map(r => !r.appearance?.trim() ? `${r.name}（还没有外貌）` : genderOf(r.appearance) ? `${r.name}（${genderOf(r.appearance)}）` : r.name).join('；');
 }
 function ruleText(settings, p, format, contract, only = null) {
   const count = countOf(p), list = castList(settings, only);
@@ -554,11 +574,24 @@ export function suggestRequest(settings, {before = []} = {}) {
     '你是绘图提示词助手。根据给出的剧情，写出最有画面感的一幕的绘图提示词。',
     gpt ? '用英文写，逗号分隔，danbooru tag 和简短的英文短语都可以：人数、动作、表情、服装、场景、光线、构图。不写露骨内容。'
       : '用英文 danbooru tag，逗号分隔：人数（1girl、2girls 等）、动作、表情、服装、场景、光线、构图。',
-    '不写剧情里的人名，不写画师名和质量词。只输出这一行提示词，不要思考过程、解释、标题或任何标签。',
+    ...peopleRules(settings),
+    '不写画师名和质量词。只输出提示词，不要思考过程、解释、标题或任何标签。',
     ...(n => n ? [`现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。尽量写满到八九成，把细节写具体，但不要超过。`] : [])(gpt ? null : budgetNumbers(settings))
   ].join('\n');
   const story = before.length ? before.map(m => `${m.name}：${m.text}`).join('\n') : '（还没有剧情）';
   return [{role: 'system', content: system}, {role: 'user', content: `【最近的剧情】\n${story}\n\n只输出提示词：`}];
+}
+/**
+ * Who may be in a prompt line: works' characters by the tag the model knows; registered people by name only (their
+ * looks are added by the plugin), named on a last 人物 line. cast: the people already added in the 角色 tab.
+ */
+function peopleRules(settings, cast = []) {
+  const known = drawable(settings).map(r => r.name).filter(n => !cast.some(c => sameName(c, n)));
+  return [
+    cast.length ? `画面里的人：${cast.join('、')}。插件会另外加上他们各自的固定外貌，你不用写外貌，写人数 tag 和他们在做什么。` : '',
+    known.length ? `登记好外貌的人物：${known.join('、')}。画面里有他们时，提示词里不写外貌，在最后单独写一行「人物：名字、名字」（名字一字不差），插件会按名字补上外貌；没有就不写这一行。` : '',
+    '已有作品里的角色（动画、游戏、小说），提示词里写模型认得的英文识别 tag「角色名 (作品名)」，比如 hatsune miku (vocaloid)，放在这个人的 tag 最前面；原创角色的中文名画图模型不认得，不要写进提示词。'
+  ].filter(Boolean);
 }
 /**
  * 帮我写: the user says in a few words (Chinese is fine) what they want drawn, the model writes the prompt line —
@@ -572,11 +605,28 @@ export function writeRequest(settings, {idea = '', cast = []} = {}) {
     gpt ? '用英文写，逗号分隔，danbooru tag 和简短的英文短语都可以。不写露骨内容。'
       : '用英文 danbooru tag，逗号分隔：人数（1girl、2girls、1boy 1girl 等）、动作、姿势、表情、视线、服装和配饰、场景和背景、光线、镜头和构图、氛围。',
     '用户写的可能是中文、可能很短：按这个意思补成一幅完整、有画面感的图，没说的细节你来定，但不要改掉想要的东西。',
-    cast.length ? `画面里的人：${cast.join('、')}。插件会另外加上他们各自的固定外貌，你不用写外貌和名字，写人数 tag 和他们在做什么。` : '',
-    '不写人名、画师名和质量词。只输出这一行提示词，不要思考过程、解释、标题或任何标签。',
+    ...peopleRules(settings, cast),
+    '不写画师名和质量词。只输出提示词，不要思考过程、解释、标题或任何标签。',
     n ? `现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。尽量写满到八九成，把细节写具体，但不要超过。` : ''
   ].filter(Boolean).join('\n');
   return [{role: 'system', content: system}, {role: 'user', content: `想画的：${String(idea).trim()}\n\n只输出提示词：`}];
+}
+/**
+ * A 帮我写 / 从剧情生成 reply: the prompt line and the registered people its 人物 line names (as registered), so the
+ * drawing app can add them with their looks.
+ */
+export function readSuggestion(settings, text) {
+  const people = [];
+  const rest = String(text || '').split('\n').filter(line => {
+    const m = line.trim().match(/^(?:人物|角色)\s*[:：]\s*(.*)$/);
+    if (!m) return true;
+    for (const name of m[1].split(/[,，、;；\s]+/).map(x => x.trim()).filter(Boolean)) {
+      const role = drawable(settings).find(r => sameName(r.name, name));
+      if (role && !people.includes(role.name)) people.push(role.name);
+    }
+    return false;
+  }).join('\n');
+  return {prompt: cleanSuggestion(rest), people};
 }
 /** How long the answer may be: room for the whole budget of tags (a few hundred tokens otherwise). */
 export function promptLength(settings) {

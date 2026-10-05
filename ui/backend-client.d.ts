@@ -687,9 +687,10 @@ export interface BackendAPI extends BackendFacade {
     /** Uploads an album photo to the tavern and attaches it to the message. */
     insertImage(messageId: number, photoId: string): Promise<{ id: number; url: string }>;
     /** Asks the chat model for picture tags describing the latest scene. */
-    suggestPrompt(): Promise<string>;
+    /** people: registered names the model put in the picture (the drawing app adds them with their looks). */
+    suggestPrompt(): Promise<{ prompt: string; people: string[] }>;
     /** 帮我写: a prompt line for a picture the user describes in a few words; cast: names of the people in it. */
-    writePrompt(idea: string, cast?: string[]): Promise<string>;
+    writePrompt(idea: string, cast?: string[]): Promise<{ prompt: string; people: string[] }>;
     /** Pictures stored in the open tavern chat. */
     chatPictureStats(): { count: number };
     /** Plans the pictures of the newest character reply again and queues them. */

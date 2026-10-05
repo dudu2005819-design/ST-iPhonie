@@ -10,7 +10,7 @@
 // Redrawing adds a version (the old ones stay for comparison); deleting removes the shown version and its file.
 // When the last version is deleted the record becomes {removed: true, versions: []}, so it is not drawn again
 // automatically. Older records ({url, seed, …}) read as a single version.
-import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact, suggestRequest, writeRequest, promptLength, cleanSuggestion} from './core/draw.js';
+import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact, suggestRequest, writeRequest, promptLength, readSuggestion} from './core/draw.js';
 import {openImageViewer} from './image-viewer.js';
 import {downloadAction} from './download.js';
 import {plainStory} from './core/chat.js';
@@ -385,17 +385,17 @@ export function createPictureHost({context, redrawMessage = (id, message) => con
     // chain of thought or XML template the model then writes out.
     const ctx = context(), chat = ctx.chat || [];
     const reply = await backend.generateText(ctx, {prompt: suggestRequest(settings(), {before: before(chat.length, 6)}), trimNames: false, responseLength: promptLength(settings())});
-    const line = cleanSuggestion(reply);
-    if (!line) throw Error('模型没有写出提示词，再试一次');
-    return line;
+    const result = readSuggestion(settings(), reply);
+    if (!result.prompt) throw Error('模型没有写出提示词，再试一次');
+    return result;
   }
   /** 帮我写: a prompt line for what the user describes (a few words, Chinese is fine). */
   async function writePrompt(idea, cast = []) {
     if (!String(idea || '').trim()) throw Error('先说说想画什么');
     const reply = await backend.generateText(context(), {prompt: writeRequest(settings(), {idea, cast: (Array.isArray(cast) ? cast : []).map(String).slice(0, 8)}), trimNames: false, responseLength: promptLength(settings())});
-    const line = cleanSuggestion(reply);
-    if (!line) throw Error('模型没有写出提示词，再试一次');
-    return line;
+    const result = readSuggestion(settings(), reply);
+    if (!result.prompt) throw Error('模型没有写出提示词，再试一次');
+    return result;
   }
   const subscriptionLabel = sub => sub ? `${TIER_NAMES[sub.tier] || '未知档位'} · Anlas ${sub.anlas}` : '';
 
