@@ -99,7 +99,8 @@ const BYTES = (() => {
 export function qwenCounter(merges) {
   const rank = new Map();
   let r = 0;
-  for (const line of String(merges).split('\n')) if (line) rank.set(line, r++);
+  // Line ends as git may have written them on Windows (\r\n): a stray \r would make every merge miss.
+  for (const line of String(merges).split(/\r?\n/)) if (line) rank.set(line, r++);
   const encoder = new TextEncoder(), cache = new Map();
   function word(w) {
     let c = cache.get(w);
