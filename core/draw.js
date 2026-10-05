@@ -12,7 +12,8 @@
 //   位置 Pn (only when pictures are planned after the reply: which paragraph the picture follows)
 // Two ways to get blocks (draw.mode): 'separate' asks the model in its own request after the reply is written and
 // inserts the blocks; 'inline' injects the rules into the story request so the reply carries the blocks itself.
-import {defaultDrawParams, normalizeDrawParams, guardParams, relayUrl} from './novelai.js';
+import {defaultDrawParams, normalizeDrawParams, guardParams, relayUrl, NAI_MODEL_NAMES} from './novelai.js';
+import {tokenBudget, counterNow, estimateTokens, countField, tagCost} from './tokens.js';
 import {strength as vibeStrength} from './vibes.js';
 import {DRAW_ENGINES, defaultGpt, normalizeGpt, defaultComfy, normalizeComfy} from './image-engines.js';
 import {escapeHTML, isPlaceholderRole} from './protocol.js';
@@ -409,7 +410,32 @@ function ruleText(settings, p, format, contract, only = null) {
   const count = countOf(p), list = castList(settings, only);
   const fill = t => t.replaceAll('{{出图格式}}', format).replaceAll('{{角色列表}}', list).replaceAll('{{出图数量}}', String(count));
   const engine = settings.draw?.engine || 'nai', entries = p.entries.filter(e => e.enabled && e.text.trim() && forEngine(e, engine));
-  return {entries, fill, tail: fill(contract(count))};
+  const budget = budgetText(settings, only);
+  return {entries, fill, tail: fill(contract(count)) + (budget ? '\n\n' + budget : '')};
+}
+/**
+ * 【tag 长度】 for NovelAI: how much of the model's prompt budget is left for what the model writes, so it can write
+ * long, detailed pictures without NovelAI cutting the end off. Counted with the real tokenizer once it has loaded
+ * (core/tokens.js), estimated before that.
+ */
+/** The NovelAI budget in numbers: model name, limit, what the style takes, what is left and about how many tags. */
+export function budgetNumbers(settings, only = null) {
+  const d = settings.draw, b = d?.engine === 'nai' || !d?.engine ? tokenBudget(d?.params?.model) : null;
+  if (!b) return null;
+  const count = counterNow(b.kind) || estimateTokens, st = activeStyle(d);
+  const head = countField(count, [st.artist, st.positive].map(x => (x || '').trim()).filter(Boolean).join(', '));
+  const looks = drawable(settings).filter(r => r.appearance?.trim() && (!only || only.includes(r.name))).map(r => `${r.name}约 ${countField(count, r.appearance)}`);
+  const left = Math.max(0, b.limit - head);
+  return {name: NAI_MODEL_NAMES[d.params.model] || d.params.model, limit: b.limit, head, looks, left, tags: Math.floor(left / tagCost(count))};
+}
+export function budgetText(settings, only = null) {
+  const n = budgetNumbers(settings, only);
+  if (!n) return '';
+  const {head, looks, left, tags} = n, b = n;
+  return ['【tag 长度】',
+    `现在用 NovelAI ${n.name}：一张图的正面 tag（场景加上画面里每个角色的，合在一起算）上限约 ${b.limit} token，超出的部分会被截掉、画不出来。`,
+    `画风已经占了约 ${head}${looks.length ? `；已登记角色的固定外貌会自动加进去，各占：${looks.join('、')}` : ''}。`,
+    `所以每张图里你写的场景 tag 和角色 tag，加上画面里那几个人的固定外貌，一共还有约 ${left} token，大约 ${tags} 个英文 tag。尽量写满：写到这个数的八九成，把动作、姿势、表情、视线、服装和配饰的细节、光线、镜头、背景都写具体；但不要超过。`].join('\n');
 }
 
 /** Prompt entries injected with the story request ('inline' mode only). Keys share the sttts.entry. prefix. */
@@ -510,7 +536,8 @@ export function suggestRequest(settings, {before = []} = {}) {
     '你是绘图提示词助手。根据给出的剧情，写出最有画面感的一幕的绘图提示词。',
     gpt ? '用英文写，逗号分隔，danbooru tag 和简短的英文短语都可以：人数、动作、表情、服装、场景、光线、构图。不写露骨内容。'
       : '用英文 danbooru tag，逗号分隔：人数（1girl、2girls 等）、动作、表情、服装、场景、光线、构图。',
-    '不写剧情里的人名，不写画师名和质量词。只输出这一行提示词，不要思考过程、解释、标题或任何标签。'
+    '不写剧情里的人名，不写画师名和质量词。只输出这一行提示词，不要思考过程、解释、标题或任何标签。',
+    ...(n => n ? [`现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。尽量写满到八九成，把细节写具体，但不要超过。`] : [])(gpt ? null : budgetNumbers(settings))
   ].join('\n');
   const story = before.length ? before.map(m => `${m.name}：${m.text}`).join('\n') : '（还没有剧情）';
   return [{role: 'system', content: system}, {role: 'user', content: `【最近的剧情】\n${story}\n\n只输出提示词：`}];

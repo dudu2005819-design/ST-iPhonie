@@ -5,6 +5,7 @@ import {downloadAction} from '../download.js';
 import {vibePanel} from './vibes.js';
 import {comfyPlans} from './comfy-plans.js';
 import {comfyLoraPanel} from './comfy-lora-panel.js';
+import {tokenBudget, loadCounter, countPicture, countField, tagCost} from '../core/tokens.js';
 
 const SIZES = [['portrait', '竖图', 832, 1216], ['landscape', '横图', 1216, 832], ['square', '方图', 1024, 1024], ['tall', '大竖图', 1024, 1536]];
 /** Pictures kept in the column beside the canvas (this visit of the app; all of them are also in the album). */
@@ -76,14 +77,15 @@ export function drawApp(ctx) {
     let body = '';
     if (tab === 'prompt') body = `
       <div class="group pad">${field('这张图的提示词', textArea('prompt', prompt, 'rows="4" placeholder="英文 tag，逗号分隔，例如 2girls, rainy day, cafe window, sharing an umbrella"'), e === 'gpt' ? '会和画风的固定正面、每个角色的外貌一起整理成一段英文描述发给 GPT。画师串、权重括号和负面不会发给 GPT。' : e === 'comfy' ? '实际发送：画师串 + 固定正面 + 这里的提示词，后面接上每个角色的外貌；NovelAI 的权重写法会自动换成 ComfyUI 的。' : '实际发送：画师串 + 固定正面 + 这里的提示词。')}
+        <div class="token-meter" data-token-meter="positive" hidden></div>
         <div class="actions" style="margin-top:0">${btn('suggest', icon('wand') + '从剧情生成', 'secondary')}</div>
-        ${e === 'gpt' ? '' : field('这张图额外的负面', textArea('negative', negative, 'rows="2" placeholder="可以留空，会和固定负面合在一起"'))}</div>`;
+        ${e === 'gpt' ? '' : field('这张图额外的负面', textArea('negative', negative, 'rows="2" placeholder="可以留空，会和固定负面合在一起"')) + '<div class="token-meter" data-token-meter="negative" hidden></div>'}</div>`;
     if (tab === 'chars') body = (characters.length ? characters.map((c, i) => `
       <div class="group pad draw-char" data-engine="${ctx.engineOf(c.name)}"><div class="row-heading">${avatar(c.name, ctx.engineOf(c.name), 30)}<strong style="flex:1">${esc(c.name)}</strong><span class="chip">位置 ${POSITION(c.position)}</span>${btn('remove-char', icon('trash'), 'text-button', `data-index="${i}" aria-label="移除 ${esc(c.name)}"`)}</div>
         <div class="char-body">${textArea('char', c.prompt, `data-index="${i}" rows="3" aria-label="${esc(c.name)} 的提示词"`)}
           <div class="pos-grid" aria-label="画面位置">${Array.from({length: 25}, (_, k) => `<button data-action="position" data-index="${i}" data-position="${k}" aria-pressed="${c.position === k}" aria-label="位置 ${POSITION(k)}"></button>`).join('')}</div></div>
         ${btn('position', '让模型自己决定位置', 'text-button', `data-index="${i}" data-position="-1" aria-pressed="${c.position < 0}"`)}</div>`).join('') : empty('还没有加入角色', e === 'gpt' ? '每个角色的外貌和在画面里的位置，会写进给 GPT 的描述里。' : e === 'comfy' ? 'ComfyUI 没有分角色的提示词：每个人的外貌接在提示词后面，位置不起作用。' : 'V4 / 4.5 可以给每个角色单独写外貌，并指定在画面里的大致位置。', 'person'))
-      + `<div class="actions">${btn('add-char', icon('add') + '从角色里添加', 'secondary')}${btn('add-custom', icon('add') + '手动添加', 'secondary')}</div>`;
+      + `<div class="token-meter" data-token-meter="positive" hidden></div><div class="actions">${btn('add-char', icon('add') + '从角色里添加', 'secondary')}${btn('add-custom', icon('add') + '手动添加', 'secondary')}</div>`;
     if (tab === 'params' && e === 'gpt') body = gptParams(d.gpt);
     if (tab === 'params' && e === 'comfy') body = comfyParams(d.comfy, comfy.controls);
     if (tab === 'params' && e === 'nai') body = `
@@ -142,6 +144,35 @@ export function drawApp(ctx) {
         <div class="savebar">${btn('generate', busy ? '正在画……' : q.free === false ? icon('alert') + (e === 'gpt' ? '生成（要花钱）' : '生成（会扣 Anlas）') : icon('paint') + '生成', 'primary', busy || !keyed || comfy?.missing ? 'disabled' : '')}</div>`);
     // A new picture goes on top of the column: show it.
     if (newest) { newest = false; const side = v.root.querySelector('.canvas-side'); if (side) side.scrollTop = 0; }
+    meters();
+  }
+
+  /**
+   * NovelAI's prompt budget (core/tokens.js): the picture as it will be sent — the style's artist and fixed tags, this
+   * prompt and every character's — against the model's limit, and the negatives against theirs. Counted again as
+   * the user types; the vocabulary loads the first time.
+   */
+  let meterTicket = 0;
+  async function meters() {
+    const boxes = [...v.root.querySelectorAll('[data-token-meter]')], budget = eng() === 'nai' ? tokenBudget(state().params.model) : null;
+    if (!boxes.length) return;
+    if (!budget) { for (const b of boxes) b.hidden = true; return; }
+    const ticket = ++meterTicket;
+    let count;
+    try { count = await loadCounter(budget.kind); } catch { for (const b of boxes) { b.hidden = false; b.textContent = '读不到分词表，暂时数不了 token'; } return; }
+    if (ticket !== meterTicket || v.disposed) return;
+    const st = styleDraft || style(), join = list => list.map(x => (x || '').trim()).filter(Boolean).join(', ');
+    const used = countPicture(count, {prompt: join([st.artist, st.positive, prompt]), negative: join([st.negative, negative]),
+      characters: characters.filter(c => c.prompt.trim()).map(c => ({prompt: c.prompt}))}, budget);
+    const head = countField(count, join([st.artist, st.positive])), tag = tagCost(count);
+    for (const box of boxes) {
+      const negativeSide = box.dataset.tokenMeter === 'negative', n = negativeSide ? used.negative : used.used, ratio = n / budget.limit, left = budget.limit - n;
+      const level = ratio > 1 ? 'over' : ratio >= .85 ? 'full' : 'room';
+      box.hidden = false;
+      box.dataset.state = level;
+      box.innerHTML = `<div class="token-bar"><i style="width:${Math.min(100, ratio * 100).toFixed(1)}%"></i></div><span><b>${n}</b> / ${budget.limit} token${negativeSide ? '（负面）'
+        : ` · 画风占 ${head}`}</span><small>${level === 'over' ? `超出 ${-left}：NovelAI 会把后面的截掉` : negativeSide ? `还能写 ${left}` : `还能写 ${left}，约 ${Math.floor(left / tag)} 个 tag${level === 'full' ? ' · 快满了' : ''}`}</small>`;
+    }
   }
 
   /** GPT: quality, default 画幅 (正文出图 follows each block's own) and whether to ask before every paid picture. */
@@ -212,10 +243,11 @@ export function drawApp(ctx) {
 
   v.on('input', '[data-field]', el => {
     const key = el.dataset.field;
-    if (key === 'prompt') prompt = el.value;
-    else if (key === 'negative') negative = el.value;
-    else if (key === 'char') characters[Number(el.dataset.index)].prompt = el.value;
+    if (key === 'prompt') { prompt = el.value; meters(); }
+    else if (key === 'negative') { negative = el.value; meters(); }
+    else if (key === 'char') { characters[Number(el.dataset.index)].prompt = el.value; meters(); }
     else if (el.hasAttribute('data-style-field')) {
+      meters();
       styleDraft ||= {...style()};
       styleDraft[key === 'negative-fixed' ? 'negative' : key] = el.value;
       const mark = v.root.querySelector('[data-style-state]');

@@ -1566,3 +1566,13 @@ button.gift-item[data-short]{opacity:.55}
 .mem-recall pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:12.5px;line-height:1.55;color:var(--ink2);max-height:180px;overflow:auto}
 .danger-text{color:var(--danger)!important}
 
+/* ---------- NovelAI token budget under the drawing prompts (ui/draw.js, core/tokens.js) ---------- */
+.token-meter{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:6px 0 2px;font-size:12px;color:var(--ink2)}
+.token-meter b{font:800 13px "JetBrains Mono",ui-monospace,Consolas,monospace;color:var(--ink)}
+.token-meter small{margin-left:auto;font-size:12px;font-weight:700}
+.token-bar{flex:1 0 100%;height:6px;border-radius:3px;background:var(--card2);overflow:hidden}
+.token-bar i{display:block;height:100%;border-radius:3px;background:var(--e-btn,var(--accent-btn));transition:width .25s}
+.token-meter[data-state=full] .token-bar i{background:linear-gradient(90deg,var(--e-btn,var(--accent-btn)),#3fbf7f)}
+.token-meter[data-state=full] small{color:#2f9e68}
+.token-meter[data-state=over] .token-bar i{background:var(--danger)}
+.token-meter[data-state=over] small,.token-meter[data-state=over] b{color:var(--danger)}
