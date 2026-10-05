@@ -303,6 +303,7 @@ export async function comfyLoras({fetch = globalThis.fetch, url, transport = 'ta
   let response;
   try { response = await fetch(direct ? endpoint : '/proxy/' + endpoint, {method: 'GET', credentials: direct ? 'omit' : 'same-origin', headers: {Accept: 'application/json'}, signal: combined}); }
   catch (error) {
+    clearTimeout(timer);
     if (signal?.aborted) throw error;
     throw Error(direct ? '浏览器读不到 ComfyUI 的 LoRA 列表：请检查地址和跨域设置。手机不能用电脑的 127.0.0.1，可改用酒馆代理；也可手填文件名。' : '酒馆代理读不到 LoRA 列表：请检查 ComfyUI 地址和连接；也可手填文件名。');
   }

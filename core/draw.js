@@ -542,6 +542,29 @@ export function suggestRequest(settings, {before = []} = {}) {
   const story = before.length ? before.map(m => `${m.name}：${m.text}`).join('\n') : '（还没有剧情）';
   return [{role: 'system', content: system}, {role: 'user', content: `【最近的剧情】\n${story}\n\n只输出提示词：`}];
 }
+/**
+ * 帮我写: the user says in a few words (Chinese is fine) what they want drawn, the model writes the prompt line —
+ * filled out to the NovelAI budget like the story's pictures. cast: the names of the people added in the 角色 tab
+ * (their looks are added by the plugin; the model only writes what they do).
+ */
+export function writeRequest(settings, {idea = '', cast = []} = {}) {
+  const gpt = settings.draw?.engine === 'gpt', n = gpt ? null : budgetNumbers(settings);
+  const system = [
+    '你是绘图提示词助手。把用户想画的画面写成一行绘图提示词。',
+    gpt ? '用英文写，逗号分隔，danbooru tag 和简短的英文短语都可以。不写露骨内容。'
+      : '用英文 danbooru tag，逗号分隔：人数（1girl、2girls、1boy 1girl 等）、动作、姿势、表情、视线、服装和配饰、场景和背景、光线、镜头和构图、氛围。',
+    '用户写的可能是中文、可能很短：按这个意思补成一幅完整、有画面感的图，没说的细节你来定，但不要改掉想要的东西。',
+    cast.length ? `画面里的人：${cast.join('、')}。插件会另外加上他们各自的固定外貌，你不用写外貌和名字，写人数 tag 和他们在做什么。` : '',
+    '不写人名、画师名和质量词。只输出这一行提示词，不要思考过程、解释、标题或任何标签。',
+    n ? `现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。尽量写满到八九成，把细节写具体，但不要超过。` : ''
+  ].filter(Boolean).join('\n');
+  return [{role: 'system', content: system}, {role: 'user', content: `想画的：${String(idea).trim()}\n\n只输出提示词：`}];
+}
+/** How long the answer may be: room for the whole budget of tags (a few hundred tokens otherwise). */
+export function promptLength(settings) {
+  const n = settings.draw?.engine === 'gpt' ? null : budgetNumbers(settings);
+  return n ? Math.min(2400, Math.max(400, Math.round(n.left * 1.4) + 120)) : 400;
+}
 /** The prompt line out of a reply: thinking blocks, tags, code fences and labels taken out. */
 export function cleanSuggestion(text) {
   const lines = String(text || '')

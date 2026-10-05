@@ -15,7 +15,7 @@ const POSITION = i => i < 0 ? '自动' : 'ABCDE'[i % 5] + (Math.floor(i / 5) + 1
 
 export function drawApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'draw'), urls = new Map();
-  let tab = 'prompt', prompt = '', negative = '', characters = [], seed = -1, results = [], current = -1, newest = false, busy = false, subscription = null, styleDraft = null, epoch = 0;
+  let tab = 'prompt', idea = '', prompt = '', negative = '', characters = [], seed = -1, results = [], current = -1, newest = false, busy = false, subscription = null, styleDraft = null, epoch = 0;
   // ComfyUI: models, samplers and schedulers read from it (null until 读取 is pressed).
   let comfyInfo = null, comfyRequest = 0, comfyAddress = '';
   const plans = comfyPlans(ctx, () => render());
@@ -78,7 +78,8 @@ export function drawApp(ctx) {
     if (tab === 'prompt') body = `
       <div class="group pad">${field('这张图的提示词', textArea('prompt', prompt, 'rows="4" placeholder="英文 tag，逗号分隔，例如 2girls, rainy day, cafe window, sharing an umbrella"'), e === 'gpt' ? '会和画风的固定正面、每个角色的外貌一起整理成一段英文描述发给 GPT。画师串、权重括号和负面不会发给 GPT。' : e === 'comfy' ? '实际发送：画师串 + 固定正面 + 这里的提示词，后面接上每个角色的外貌；NovelAI 的权重写法会自动换成 ComfyUI 的。' : '实际发送：画师串 + 固定正面 + 这里的提示词。')}
         <div class="token-meter" data-token-meter="positive" hidden></div>
-        <div class="actions" style="margin-top:0">${btn('suggest', icon('wand') + '从剧情生成', 'secondary')}</div>
+        <div class="field idea-field"><span>想画什么${help('用中文说一句就行，比如「下雨天两个人在便利店门口共撑一把伞」，点「帮我写」，模型会补成完整的英文提示词填到上面（会换掉上面原来的）。「角色」里加了的人，外貌插件会自动加，模型只写他们在做什么。用 NovelAI 时会按 token 上限尽量写满。')}</span><div class="inline-row">${input('idea', idea, 'text', 'maxlength="300" placeholder="例如：下雨天两个人共撑一把伞" autocomplete="off"')}${btn('write-prompt', icon('wand') + '帮我写', 'secondary')}</div></div>
+        <div class="actions" style="margin-top:0">${btn('suggest', icon('book') + '从剧情生成', 'secondary')}</div>
         ${e === 'gpt' ? '' : field('这张图额外的负面', textArea('negative', negative, 'rows="2" placeholder="可以留空，会和固定负面合在一起"')) + '<div class="token-meter" data-token-meter="negative" hidden></div>'}</div>`;
     if (tab === 'chars') body = (characters.length ? characters.map((c, i) => `
       <div class="group pad draw-char" data-engine="${ctx.engineOf(c.name)}"><div class="row-heading">${avatar(c.name, ctx.engineOf(c.name), 30)}<strong style="flex:1">${esc(c.name)}</strong><span class="chip">位置 ${POSITION(c.position)}</span>${btn('remove-char', icon('trash'), 'text-button', `data-index="${i}" aria-label="移除 ${esc(c.name)}"`)}</div>
@@ -243,7 +244,8 @@ export function drawApp(ctx) {
 
   v.on('input', '[data-field]', el => {
     const key = el.dataset.field;
-    if (key === 'prompt') { prompt = el.value; meters(); }
+    if (key === 'idea') idea = el.value;
+    else if (key === 'prompt') { prompt = el.value; meters(); }
     else if (key === 'negative') { negative = el.value; meters(); }
     else if (key === 'char') { characters[Number(el.dataset.index)].prompt = el.value; meters(); }
     else if (el.hasAttribute('data-style-field')) {
@@ -316,6 +318,15 @@ export function drawApp(ctx) {
       case 'add-custom': characters.push({name: '角色', prompt: '', position: -1}); render(); break;
       case 'add-char': pickCharacter(); break;
       case 'zoom': { const img = el.querySelector('img'), shown = results[current]; if (img) openImageViewer({doc: ctx.doc, src: img.src, alt: '生成的图片', from: img, actions: shown ? [downloadAction(ctx.doc, () => resultFile(shown), ctx.notify)] : []}); break; }
+      case 'write-prompt':
+        if (!idea.trim()) { ctx.notify('先在「想画什么」里说一句'); v.root.querySelector('[data-field=idea]')?.focus(); break; }
+        await v.busy(el, async () => {
+          el.innerHTML = icon('spin') + '正在写…';
+          prompt = await api.writePrompt(idea, characters.map(c => c.name).filter(n => n && n !== '角色'));
+          render();
+          ctx.notify('写好了，可以再改；不满意再点一次');
+        });
+        break;
       case 'suggest':
         await v.busy(el, async () => {
           el.innerHTML = icon('spin') + '正在读剧情…';

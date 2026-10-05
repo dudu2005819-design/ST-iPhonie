@@ -217,6 +217,7 @@ function connect(source){
   recentMessages:()=>{check();return pictures.recentMessages();},
   insertImage:(id,photoId)=>{check();return pictures.insertImage(id,photoId);},
   suggestPrompt:()=>{check();return pictures.suggestPrompt();},
+  writePrompt:(idea,cast)=>{check();return pictures.writePrompt(idea,cast);},
   chatPictureStats:()=>{check();return pictures.pictureStats();},
   planLatestPictures:()=>{check();return pictures.planLatest();},
   clearChatPictures:()=>{check();return pictures.clearPictures();},
