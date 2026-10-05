@@ -5,7 +5,7 @@ import {buildPeekRequest, parsePeek, peekId} from './core/peek.js';
 import {storyLines} from './core/moments.js';
 import {inSpace, activeChatPreset, cleanTagged} from './core/chat.js';
 import {worldInfoFor, loreOptions} from './host-lore.js';
-import {pictureInputs} from './core/draw.js';
+import {pictureInputs, sizeFor} from './core/draw.js';
 
 const PEOPLE = 12;
 
@@ -93,20 +93,25 @@ export function createAppsHost({context, settings, backend}) {
     });
   }
 
-  /** Draws one photo of a character's album with NovelAI. Without allowPaid, only when the free tier covers it. */
+  /** Draws one photo of a character's album (index 'wallpaper': their wallpaper, upright). Without allowPaid, only when
+   *  the free tier covers it. */
   async function peekDraw(name, index, {allowPaid = false} = {}) {
     // The open card's snapshot of this person, else the shared one from before 分区.
-    const key = backend.spaceKey(), snap = (await backend.apps.get(peekId(name, key))) || (key ? await backend.apps.get(peekId(name)) : null), id = snap?.id, photo = snap?.photos?.[index];
-    if (!photo) throw Error('这张照片已经不在了');
-    if (!photo.tags) throw Error('这张照片没有画图用的描述，「再看一次」后就有了');
+    const key = backend.spaceKey(), snap = (await backend.apps.get(peekId(name, key))) || (key ? await backend.apps.get(peekId(name)) : null), id = snap?.id;
+    const wall = index === 'wallpaper', pick = doc => wall ? doc.wallpaper : doc.photos?.[index], photo = snap && pick(snap);
+    if (!photo) throw Error(wall ? '没有壁纸，「再看一次」后就有了' : '这张照片已经不在了');
+    if (!photo.tags) throw Error((wall ? '壁纸' : '这张照片') + '没有画图用的描述，「再看一次」后就有了');
     if (!backend.drawReady()) throw Error(backend.drawMissing() + '，相册只能看文字');
-    const set = patch => backend.appsMutate('peek', () => backend.apps.change(id, doc => { Object.assign(doc.photos[index], patch); for (const k of Object.keys(patch)) if (patch[k] === '') delete doc.photos[index][k]; }));
+    const set = patch => backend.appsMutate('peek', () => backend.apps.change(id, doc => { const target = pick(doc); Object.assign(target, patch); for (const k of Object.keys(patch)) if (patch[k] === '') delete target[k]; }));
     // The owner's saved look only when the picture shows a person (a selfie), not for a view or a meal.
     const person = /(\d+(?:girl|boy|other)s?|solo|selfie|portrait|upper body|cowboy shot)/i.test(photo.tags);
     try {
       await set({state: 'waiting', note: ''});
       const input = pictureInputs(settings(), {prompt: photo.tags, characters: person ? [name] : []}, '');
-      const result = await backend.generateImage({...input, allowPaid, name: `查手机-${name}`, key: `peek:${name}:${index}`, label: `查手机 · ${name}`});
+      // A wallpaper stands upright like the phone (a square size becomes 832×1216 for 1024: about as many pixels, so the
+      // free tier still holds).
+      if (wall) { const up = sizeFor(input.params, '竖'), side = up.width, snap64 = n => Math.max(64, Math.round(n / 64) * 64); input.params = {...input.params, ...(up.width === up.height ? {width: snap64(side * .8125), height: snap64(side * 1.1875)} : up)}; }
+      const result = await backend.generateImage({...input, allowPaid, name: `查手机-${name}`, key: `peek:${name}:${index}`, label: `查手机 · ${name}${wall ? ' · 壁纸' : ''}`});
       await set({photoId: result.photoId, state: 'done', note: ''});
       return result.photoId;
     } catch (error) {
