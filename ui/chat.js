@@ -230,13 +230,13 @@ export function chatApp(ctx) {
   function toolsHTML() {
     const group = thread.type === 'group';
     const tools = [['photo', 'image', '照片'], ['emoji', 'smile', '表情'], ['redpacket', 'packet', '红包'], ...(group ? [] : [['transfer', 'swap', '转账'], ['gift', 'gift', '礼物']]),
-      ['location', 'pin', '位置'], ['pat', 'hand', '拍一拍'], ['dice', 'dice', '骰子'], ['nudge', 'reply', group ? '让大家说' : '让TA说']];
+      ['location', 'pin', '位置'], ['pat', 'hand', '拍一拍'], ['dice', 'dice', '骰子']];
     if (panel === 'emoji') return `<div class="chat-panel emoji-panel" role="group" aria-label="表情">
       <div class="emoji-grid">${EMOJI.map(e => `<button data-action="emoji-pick" data-emoji="${e}" aria-label="${e}">${e}</button>`).join('')}</div>
       <div class="kao-row">${KAOMOJI.map(e => `<button data-action="emoji-pick" data-emoji="${esc(e)}">${esc(e)}</button>`).join('')}</div>
       <div class="panel-foot">${btn('panel-tools', icon('back') + '更多功能', 'text-button')}${btn('emoji-del', icon('backspace'), 'round-button', 'aria-label="删除一个字"')}</div></div>`;
     return `<div class="chat-panel" role="group" aria-label="更多功能"><div class="tool-grid">${tools.map(([action, glyph, label]) =>
-      `<button class="tool" data-action="tool-${action}" ${action === 'nudge' && !live ? 'disabled' : ''}><span class="tool-ico" data-tool="${action}">${icon(glyph)}</span><span>${label}</span></button>`).join('')}</div></div>`;
+      `<button class="tool" data-action="tool-${action}"><span class="tool-ico" data-tool="${action}">${icon(glyph)}</span><span>${label}</span></button>`).join('')}</div></div>`;
   }
   function composerHTML() {
     const group = thread.type === 'group';
@@ -945,7 +945,6 @@ export function chatApp(ctx) {
       case 'tool-location': panel = null; syncPanel(); sendLocation(); break;
       case 'tool-pat': panel = null; syncPanel(); await choosePat(); break;
       case 'tool-dice': panel = null; syncPanel(); await rollDice(); break;
-      case 'tool-nudge': panel = null; syncPanel(); requestReply(); break;
       case 'quote-off': quote = null; render(); break;
       case 're-edit': {
         const text = recalled.get(el.dataset.mid) || '';
