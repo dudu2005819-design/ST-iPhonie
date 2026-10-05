@@ -82,7 +82,8 @@ export function buildReport(f) {
         r.iframes ? `这条消息里有 ${r.iframes} 个内嵌页面（前端卡或酒馆助手的界面），声波可能被放进去了，里面的点击传不到插件。` : '刷新页面试试；还不行就把这份报告发出来。'));
       else items.push(item('ok', `正文里画出了 ${r.waves} 个声波`));
       if (r.stale) items.push(item('warn', `${r.stale} 个声波是刷新前画的`, '点一下会重新画好；经常出现的话，可能有插件缓存了旧的消息。'));
-      if (r.covered) items.push(item('error', '声波被别的东西盖住了', `上次手机关着时看到，盖在上面的是 ${r.covered}，点击会落在它上面。多半是主题或别的插件的元素。`));
+      if (r.covered) items.push(item('error', '当前可见声波被覆盖',
+        `刚刚检查到一枚当前可见的声波，盖在上面的是 ${r.covered}，这个位置的点击会落在它上面。这里只说明实际命中结果，不直接判断来源；可能是酒馆界面、主题或其他插件。`));
     }
     add('最近一条回复', items);
   }
