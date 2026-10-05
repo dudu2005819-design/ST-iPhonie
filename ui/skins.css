@@ -176,3 +176,19 @@
 .skin-choice i:nth-of-type(2){top:68%;right:40%}
 .skin-choice b{position:absolute;left:12%;top:12%;width:24%;aspect-ratio:1;border-radius:6px}
 @media (prefers-reduced-motion:reduce){:root[data-skin] .primary,:root[data-skin] .secondary{transition:none}}
+/* 引擎 card pockets: glass in Aero, an airmail envelope in 文艺小清新. */
+:root[data-skin=aero] .card-pocket{background:var(--aero-gloss),color-mix(in srgb,var(--e-soft) 40%,var(--card));border:1px solid var(--aero-edge);box-shadow:inset 0 1px 0 var(--aero-edge),var(--shadow)}
+:root[data-skin=aero] .pocket-icon{background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,0) 52%),var(--e-btn);box-shadow:inset 0 1px 0 rgba(255,255,255,.8),0 6px 14px -8px var(--e)}
+:root[data-skin=aero] .pocket-lip{background:linear-gradient(180deg,rgba(255,255,255,.82),rgba(255,255,255,.55) 45%,rgba(255,255,255,.7)),color-mix(in srgb,var(--e-soft) 50%,transparent);-webkit-backdrop-filter:blur(8px) saturate(1.4);backdrop-filter:blur(8px) saturate(1.4);box-shadow:inset 0 1px 0 #fff,inset 0 -8px 14px -10px rgba(0,110,160,.35),0 -10px 18px -12px rgba(0,90,140,.45)}
+:root[data-skin=aero][data-theme=dark] .pocket-lip{background:linear-gradient(180deg,rgba(140,225,255,.22),rgba(140,225,255,.08)),color-mix(in srgb,var(--e-soft) 60%,#04202f);box-shadow:inset 0 1px 0 rgba(140,225,255,.35),0 -10px 18px -12px #000}
+:root[data-skin=aero] .pocket-lip:before{border-top:1px solid rgba(255,255,255,.9);top:9px}
+:root[data-skin=fresh] .card-pocket{border-radius:18px;background:color-mix(in srgb,var(--e) 10%,#fbf7ee);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--e-ink) 14%,transparent),0 12px 22px -16px rgba(60,60,40,.5)}
+:root[data-skin=fresh][data-theme=dark] .card-pocket{background:color-mix(in srgb,var(--e) 10%,#20261f)}
+:root[data-skin=fresh] .pocket-title b{font-family:var(--serif);font-weight:700;letter-spacing:.06em}
+:root[data-skin=fresh] .pocket-icon{border-radius:8px;rotate:-3deg;background:color-mix(in srgb,var(--e) 30%,#fbf7ee);color:var(--e-ink);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--e-ink) 35%,transparent)}
+:root[data-skin=fresh] .pocket-lip{border-radius:0 0 18px 18px;-webkit-mask:none;mask:none;
+  background:repeating-linear-gradient(-45deg,#c96b6b 0 9px,#fbf7ee 9px 14px,#6b8fc9 14px 23px,#fbf7ee 23px 28px) top/100% 6px no-repeat,linear-gradient(180deg,#fbf7ee,#f1e9d8);
+  box-shadow:0 -8px 14px -12px rgba(60,60,40,.5),inset 0 0 0 1px rgba(90,80,50,.12)}
+:root[data-skin=fresh][data-theme=dark] .pocket-lip{background:repeating-linear-gradient(-45deg,#9a5656 0 9px,#2a302a 9px 14px,#56709a 14px 23px,#2a302a 23px 28px) top/100% 6px no-repeat,linear-gradient(180deg,#2a302a,#222820)}
+:root[data-skin=fresh] .pocket-lip:before{left:50%;right:auto;top:18px;width:46px;height:20px;margin-left:-23px;border:1.5px solid color-mix(in srgb,var(--e-ink) 40%,transparent);border-radius:50%;-webkit-mask:none;mask:none;opacity:.55}
+

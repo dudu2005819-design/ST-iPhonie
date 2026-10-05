@@ -10,7 +10,20 @@ export function enginesApp(ctx) {
   let comfyInfo = null, comfyRequest = 0;
   // The wallet is a stack: the last card is the one in front. A tap on another card draws it to the front; a tap on
   // the front card opens it.
-  let order = ['embed', 'llm', ...Object.keys(engines), 'comfy', 'gpt', 'nai'];
+  // The cards come in three pockets: 图像 (the drawing engines), 语音 (the voice engines), 文字 (text and vector models).
+  // order: the cards from back to front (the last of each pocket is in front); the engine in use starts in front.
+  const GROUPS = [
+    {id: 'image', title: '图像', en: 'IMAGE', glyph: 'image', ids: ['nai', 'gpt', 'comfy']},
+    {id: 'voice', title: '语音', en: 'VOICE', glyph: 'wave', ids: Object.keys(engines)},
+    {id: 'text', title: '文字', en: 'TEXT · VECTOR', glyph: 'chat', ids: ['embed', 'llm']}];
+  const groupOf = id => GROUPS.find(g => g.ids.includes(id));
+  let order = (() => {
+    const s = api.getState(), voices = Object.keys(engines).sort((a, b) => s.routes.filter(r => r.engine === a).length - s.routes.filter(r => r.engine === b).length);
+    const drawing = ['nai', 'gpt', 'comfy'].filter(x => x !== s.draw.engine);
+    return [...drawing, s.draw.engine, ...voices, 'embed', 'llm'];
+  })();
+  /** The card in front of its pocket. */
+  const frontOf = id => groupOf(id).ids.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b)).at(-1);
   // 向量模型 being edited (not saved yet).
   let embedDraft = null, embedModels = [];
   const IMAGE = ['nai', 'gpt', 'comfy'];
@@ -62,7 +75,7 @@ export function enginesApp(ctx) {
       : PRICED.includes(id) && saved
         ? [['MODEL', api.getState().connections[id].model], [id === 'eleven' ? 'CREDITS' : 'BALANCE', balanceText(id)]]
         : [['MODEL', api.getState().connections[id].model], ['ROLES', api.getState().routes.filter(r => r.engine === id && r.voice).length + ' 个角色']];
-    const front = order.at(-1) === id;
+    const front = frontOf(id) === id;
     const attrs = tag === 'button' ? `data-action="engine" data-engine="${id}" aria-label="${name}，${front ? '点一下打开' : '点一下抽到最前面'}"` : `data-engine="${id}"`;
     const dots = comfy ? '' : `•••• •••• •••• ${api.keyHint?.(id) || '••••'}`;
     const number = vector ? (em.enabled ? (saved ? dots : '未绑定密钥 · 本地接口可以不填') : '没开 · 记忆用本地检索') : comfy ? d.comfy.url.replace(/^https?:\/\//, '') : llm ? (custom ? (saved ? dots : '未绑定密钥 · 点卡片去填写') : '用酒馆当前连接的模型') : saved ? dots : '未绑定密钥 · 点卡片去填写';
@@ -224,7 +237,7 @@ export function enginesApp(ctx) {
 
   /** Draws a card to the front of the stack: the cards move from where they were to where they end up (FLIP). */
   function bringFront(id) {
-    const wallet = v.root.querySelector('.wallet');
+    const wallet = v.root.querySelector(`.wallet[data-group="${groupOf(id).id}"]`);
     order = [...order.filter(x => x !== id), id];
     if (!wallet) return render();
     const before = new Map([...wallet.children].map(el => [el.dataset.engine, el.getBoundingClientRect().top]));
@@ -240,12 +253,35 @@ export function enginesApp(ctx) {
     void wallet.offsetHeight;
     for (const el of wallet.children) { el.style.transition = ''; el.style.transform = ''; }
     wallet.querySelector(`[data-engine="${id}"]`)?.focus({preventScroll: true});
+    const pocket = wallet.closest('.card-pocket');
+    if (pocket) pocket.dataset.engine = id;
   }
 
+  /** One line on what a pocket holds, for its header. */
+  function pocketNote(g) {
+    const s = api.getState();
+    if (g.id === 'image') {
+      const names = {nai: 'NovelAI', gpt: 'GPT 生图', comfy: 'ComfyUI'};
+      const ready = g.ids.filter(id => id === 'comfy' ? !!s.draw.comfy.url : api.keyStatus(id)).length;
+      return [`正在用 ${names[s.draw.engine] || 'NovelAI'}`, `${ready}/${g.ids.length}`];
+    }
+    if (g.id === 'voice') {
+      const ready = g.ids.filter(id => api.keyStatus(id)).length, voiced = s.routes.filter(r => r.voice).length;
+      return [ready ? `${ready} 家绑定了密钥 · ${voiced} 个角色有音色` : '还没有绑定密钥', `${ready}/${g.ids.length}`];
+    }
+    const custom = s.text.source === 'custom', vector = s.embed?.enabled;
+    return [`${custom ? '自定义接口' : '酒馆主模型'}写字 · 记忆${vector ? '按意思找（向量）' : '本地检索'}`, `${(custom ? 1 : 0) + (vector ? 1 : 0)}/2`];
+  }
   function renderList() {
     delete v.root.dataset.engine;
-    v.draw(heading('引擎', help('每个服务一张卡：文字模型、四家语音引擎（Fish Audio、MiniMax、ElevenLabs、小米 MiMo），加上绘图用的 NovelAI、GPT 生图和 ComfyUI（绘图 App 里选用哪个画）。点一张卡片把它抽到最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
-      + `<div class="wallet">${order.map(id => card(id)).join('')}</div>`);
+    v.draw(heading('引擎', help('卡片分三个卡包：图像（绘图用的 NovelAI、GPT 生图、ComfyUI，绘图 App 里选用哪个画）、语音（Fish Audio、MiniMax、ElevenLabs、小米 MiMo）、文字（写手机里的字的文字模型，和给聊天记忆找旧聊天的向量模型）。点一张卡片把它抽到这个卡包的最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
+      + GROUPS.map(g => {
+        const [note, count] = pocketNote(g), stack = g.ids.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        return `<section class="card-pocket" data-pocket="${g.id}" data-engine="${stack.at(-1)}" aria-label="${g.title}卡包">
+          <header class="pocket-head"><span class="pocket-icon">${icon(g.glyph)}</span><span class="pocket-title"><b>${g.title}<i>${g.en}</i></b><small>${esc(note)}</small></span><span class="pocket-count" title="已经能用的">${count}</span></header>
+          <div class="wallet" data-group="${g.id}">${stack.map(id => card(id)).join('')}</div>
+          <div class="pocket-lip" aria-hidden="true"></div></section>`;
+      }).join(''));
     for (const id of PRICED) if (!balances.has(id)) loadBalance(id);
   }
   /** The 额度 group of the ElevenLabs and Fish cards. */
@@ -466,7 +502,7 @@ export function enginesApp(ctx) {
         if (await ctx.confirm('删除这组连接？', `「${p.name}」的地址和密钥会一起删掉，其他组保留。`)) { api.deleteImageConnection(engine, p.id); imageSaved(); ctx.notify('已删除这组连接'); }
         break;
       }
-      case 'engine': if (order.at(-1) === el.dataset.engine) edit(el.dataset.engine); else bringFront(el.dataset.engine); break;
+      case 'engine': if (frontOf(el.dataset.engine) === el.dataset.engine) edit(el.dataset.engine); else bringFront(el.dataset.engine); break;
       case 'text-source': textDraft.source = el.dataset.source; changed(); dirty = true; render(); break;
       case 'text-preset': if (textDraft.active !== el.dataset.id) { textDraft.active = el.dataset.id; models = []; changed(); dirty = true; render(); } break;
       case 'text-new': {

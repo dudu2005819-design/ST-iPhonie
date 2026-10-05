@@ -369,6 +369,25 @@ details>div{padding-bottom:10px}
 
 /* ---------- Engines: card wallet ---------- */
 .wallet{padding:2px 2px 8px}
+/* Card pockets of the 引擎 app: 图像, 语音, 文字. The cards stand in a pocket whose front lip covers their lower edge,
+   with a thumb notch in the middle; the pocket takes the colour of the card in front. */
+.card-pocket{position:relative;margin:4px 0 22px;padding:12px 12px 0;border-radius:30px;background:color-mix(in srgb,var(--e-soft) 55%,var(--card));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--e) 22%,transparent),var(--shadow);transition:background .45s}
+.pocket-head{display:flex;align-items:center;gap:10px;padding:0 4px 12px}
+.pocket-icon{flex-shrink:0;width:36px;height:36px;border-radius:12px;display:grid;place-items:center;background:var(--e-btn);color:var(--e-on);box-shadow:0 6px 12px -8px var(--e);transition:background .45s}
+.pocket-icon svg{width:20px;height:20px}
+.pocket-title{flex:1;min-width:0;display:grid;gap:1px}
+.pocket-title b{font-size:16.5px;font-weight:900;display:flex;align-items:baseline;gap:8px}
+.pocket-title b i{font-style:normal;font-size:9.5px;font-weight:900;letter-spacing:.18em;color:var(--e-ink);opacity:.75}
+.pocket-title small{font-size:12px;font-weight:600;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pocket-count{flex-shrink:0;padding:4px 10px;border-radius:999px;font:800 12px "JetBrains Mono",ui-monospace,Consolas,monospace;color:var(--e-ink);background:color-mix(in srgb,var(--e) 16%,var(--card))}
+.card-pocket .wallet{position:relative;z-index:1;padding:0 2px}
+.card-pocket .bank-card{padding-bottom:34px}
+.pocket-lip{position:relative;z-index:2;height:50px;margin:-30px -12px 0;border-radius:0 0 30px 30px;pointer-events:none;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--e-soft) 40%,var(--card)),color-mix(in srgb,var(--e-soft) 70%,var(--card)));
+  box-shadow:0 -10px 16px -12px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.6);
+  -webkit-mask:radial-gradient(46px 18px at 50% 0,transparent 97%,#000);mask:radial-gradient(46px 18px at 50% 0,transparent 97%,#000);transition:background .45s}
+.pocket-lip:before{content:"";position:absolute;left:18px;right:18px;top:12px;border-top:2px dashed color-mix(in srgb,var(--e) 45%,transparent);-webkit-mask:radial-gradient(56px 24px at 50% -12px,transparent 97%,#000);mask:radial-gradient(56px 24px at 50% -12px,transparent 97%,#000)}
+:root[data-theme=dark] .pocket-lip{box-shadow:0 -10px 16px -12px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.08)}
 .bank-card{position:relative;display:flex;flex-direction:column;width:100%;height:200px;padding:16px 20px;text-align:left;overflow:hidden;border-radius:24px;color:var(--e-on);background:radial-gradient(circle at 88% 120%,rgba(255,255,255,.25) 0 22%,transparent 22.5%),radial-gradient(circle at 100% 0,rgba(255,255,255,.19) 0 18%,transparent 18.5%),repeating-linear-gradient(-45deg,rgba(255,255,255,.08) 0 10px,transparent 10px 20px),linear-gradient(135deg,var(--e-btn),color-mix(in srgb,var(--e) 70%,#fff));box-shadow:0 -6px 18px -8px rgba(0,0,0,.25),0 12px 24px -12px var(--e)}
 .wallet .bank-card+.bank-card{margin-top:-146px}
 .wallet .bank-card{transition:transform .55s cubic-bezier(.2,.9,.25,1.04),box-shadow .35s,filter .35s}
