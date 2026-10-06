@@ -350,6 +350,7 @@ export function plainStory(textValue) {
   return String(textValue || '')
     .replace(/```[\s\S]*?(?:```|$)|<(style|script)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)|<!--[\s\S]*?(?:-->|$)/gi, ' ')
     .replace(/<tts\b[^>]*>[\s\S]*?<\/tts\s*>/gi, '')
+    .replace(/<(sfx|ambience)\b[^>]*>[^<>]*<\/\1\s*>/gi, '')
     .replace(/<img\b[^>]*>[^<]*<\/img\s*>|<img\b[^>]*>/gi, '')
     .replace(/<[^>]+>/g, '')
     .replace(/\s+/g, ' ')

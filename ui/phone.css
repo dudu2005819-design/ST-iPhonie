@@ -1652,3 +1652,17 @@ button.gift-item[data-short]{opacity:.55}
 /* A contact's photo drawn from its words: drawing, or a button to draw it. */
 .ph-note{display:block;margin-top:4px;font-size:11.5px;font-weight:700;color:var(--ink2)}
 .ph-draw{all:unset;cursor:pointer;display:inline-block;margin-top:5px;padding:3px 10px;border-radius:999px;background:color-mix(in srgb,var(--accent-btn) 16%,transparent);color:var(--accent-btn);font-size:11.5px;font-weight:800}
+
+/* 音效 App: the ambience playing, 缺的声音, and each name's versions. */
+.list-row.static{cursor:default}
+.secondary.small{min-height:34px;padding:6px 14px;font-size:13px}
+.icon-button{width:36px;height:36px;flex-shrink:0;border-radius:50%;display:inline-grid;place-items:center;color:var(--accent-ink);background:var(--card2);box-shadow:inset 0 0 0 1.5px var(--line)}
+.icon-button svg{width:18px;height:18px}
+.row-actions{display:flex;gap:6px;flex-shrink:0}
+.sound-version{padding:10px 0;display:grid;gap:8px}
+.sound-version+.sound-version{border-top:1px solid var(--line)}
+.sound-version-head{display:flex;align-items:center;gap:10px}
+.sound-version-head>span{flex:1;min-width:0;display:grid;gap:2px}
+.sound-version-head small{color:var(--ink2);font-size:12px;overflow-wrap:anywhere}
+.sound-version-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.sound-version-fields input{width:100%;min-width:0;font-size:16px;min-height:42px;padding:8px 12px;color:var(--ink);background:var(--card2);border:1.5px solid var(--line);border-radius:14px}

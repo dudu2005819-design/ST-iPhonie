@@ -177,6 +177,17 @@ export class Providers{
   try{this.onSpend?.(request.engine);}catch{}
   if(request.engine==='mimo')return decodeMimo(response,request);
   if(request.engine==='mini')return decodeMini(response,request,this.fetcher,signal);if(response.headers.get('Content-Type')?.includes('json'))throw Error(names[request.engine]+' 未返回音频');return audioBlob(await limitedBytes(response),request);}
+ /** ElevenLabs 音效 (text to sound effects): an English description to an MP3. seconds 0: ElevenLabs picks; loop: an ambience that loops seamlessly. */
+ async soundEffect({text,seconds=0,loop=false},signal=new AbortController().signal){
+  const body={text:String(text||'').slice(0,450),model_id:'eleven_text_to_sound_v2',prompt_influence:.4,...(seconds?{duration_seconds:Math.min(30,Math.max(.5,Number(seconds)))}:{}),...(loop?{loop:true}:{})};
+  if(!body.text.trim())throw Error('音效描述是空的');
+  const url='https://api.elevenlabs.io/v1/sound-generation?output_format=mp3_44100_128',send=()=>this.fetch(url,{method:'POST',headers:{...this.headers('eleven'),'Content-Type':'application/json'},body:JSON.stringify(body)},signal);
+  let response=await send();const count=this.keyPool('eleven')?.count||0;
+  for(let tried=1;!response.ok&&count>1&&tried<count&&KEY_SWITCH.has(response.status);tried++){if(!this.nextKey('eleven'))break;await response.body?.cancel?.().catch(()=>{});response=await send();}
+  if(!response.ok)throw await httpError('eleven',response,'音效生成失败',[this.currentKey('eleven')]);
+  try{this.onSpend?.('eleven');}catch{}
+  const bytes=await limitedBytes(response);if(!bytes.length)throw Error('ElevenLabs 没有返回声音');
+  return new Blob([bytes],{type:'audio/mpeg'});}
  post(request,body,signal){return this.fetch(request.url,{method:'POST',headers:{...this.headers(request.engine),'Content-Type':'application/json'},body:JSON.stringify(body)},signal);}
  /** What a voice list says about a voice besides its name (description, tags, gender and age, languages), for picking one. */
  static voiceInfo(engine,v){const list=x=>Array.isArray(x)?x.filter(y=>typeof y==='string'):[];const parts=engine==='fish'?[v.description,list(v.tags).join(' '),list(v.languages).join('/')]:engine==='mini'?[Array.isArray(v.description)?list(v.description).join('；'):v.description]:[Object.values(v.labels&&typeof v.labels==='object'?v.labels:{}).filter(x=>typeof x==='string').join(' '),v.description];return parts.filter(x=>typeof x==='string'&&x.trim()).map(x=>x.trim().replace(/\s+/g,' ')).join(' · ').slice(0,240);}

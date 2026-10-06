@@ -10,6 +10,7 @@ import { normalizeEmbed, embedReady, embedTexts } from './embed.js';
 import { bookId, emptyBook, cleanBook, removeNode } from './memory.js';
 import { normalizeSync, runSync, removeSync, SYNC_PARTS } from './sync.js';
 import { normalizePool } from './auto-voice.js';
+import { normalizeSounds, soundRow, readPack, missingKey, soundName, PACK_FORMAT, SOUND_LIMITS, SOUND_KINDS } from './sounds.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
@@ -112,6 +113,8 @@ export class TTSBackend {
         this.apps = new AppStore(this.settings.scope, { indexedDB });
         // 记忆 (core/memory.js): one book per chat, and the vectors of its older messages. A database of its own: big.
         this.memoryStore = new AppStore(this.settings.scope, { indexedDB, database: 'st-iphonie-memory-v1' });
+        // 音效 (core/sounds.js): the sound library and the names the story asked for that it has none of. Its own database: big.
+        this.sounds = new AppStore(this.settings.scope, { indexedDB, database: 'st-iphonie-sounds-v1' });
         // 向量模型's key (core/embed.js).
         this.embedKey = '';
         // 分区: the tavern's open character card (or group), told by the tavern page (index.js).
@@ -1297,6 +1300,100 @@ export class TTSBackend {
         next.calls = normalizeCalls({ ...next.calls, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
         return this.save(next).calls;
     }
+    // ---------- 音效 ----------
+    /** {enabled, ambienceVolume, sfxVolume, vary, generate, versions}. */
+    saveSounds(patch) {
+        const next = this.getState(), allowed = ['enabled', 'ambienceVolume', 'sfxVolume', 'vary', 'generate', 'versions'];
+        next.sounds = normalizeSounds({ ...next.sounds, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
+        return this.save(next).sounds;
+    }
+    /** The sound library without the audio, newest first. */
+    async listSounds() { return (await this.sounds.list('sound')).map(({ blob, kind, ...row }) => row); }
+    async soundBlob(id) { const row = await this.sounds.get(id); return row?.kind === 'sound' ? row.blob : null; }
+    /** Adds sounds: each {name, type, layer, strength, source, describe, seconds, blob}. The names they answer are no longer missing. */
+    async addSounds(list) {
+        this.assertOpen();
+        const at = Date.now(), rows = (Array.isArray(list) ? list : [list]).map((value, i) => {
+            const row = soundRow(value), blob = value?.blob;
+            if (!row.name) throw Error('给声音起个名字');
+            if (!(blob instanceof Blob) || !blob.size) throw Error(`「${row.name}」不是能用的音频文件`);
+            if (blob.size > SOUND_LIMITS.file) throw Error(`「${row.name}」太大了（单个声音最多 ${SOUND_LIMITS.file / 1024 / 1024} MB）`);
+            const type = String(blob.type || '').toLowerCase();
+            if (type && !type.startsWith('audio/') && !['application/octet-stream', 'video/webm', 'video/ogg'].includes(type)) throw Error(`「${row.name}」不是音频文件`);
+            return { ...row, id: crypto.randomUUID(), kind: 'sound', at: at + i, mime: type.startsWith('audio/') ? type : 'audio/mpeg', size: blob.size, blob };
+        });
+        if (!rows.length) return [];
+        await this.sounds.put(rows);
+        for (const key of new Set(rows.map(r => missingKey(r.type, r.name)))) await this.sounds.remove(key);
+        this.emit('sounds', {});
+        return rows.map(({ blob, kind, ...row }) => row);
+    }
+    /** Renames or re-sorts a sound: name, type, layer, strength, describe. */
+    async updateSound(id, patch = {}) {
+        const allowed = ['name', 'type', 'layer', 'strength', 'describe'];
+        const row = await this.sounds.change(id, doc => {
+            if (doc.kind !== 'sound') throw Error('这个声音已经不在了');
+            const next = soundRow({ ...doc, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
+            if (!next.name) throw Error('给声音起个名字');
+            Object.assign(doc, next);
+        });
+        await this.sounds.remove(missingKey(row.type, row.name));
+        this.emit('sounds', {});
+        const { blob, kind, ...rest } = row;
+        return rest;
+    }
+    async deleteSounds(ids) {
+        const list = [...new Set((Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean))];
+        for (const id of list) await this.sounds.remove(id);
+        if (list.length) this.emit('sounds', {});
+        return list.length;
+    }
+    /** 缺的声音: {type, name, describe, count, at}, the most recent first. */
+    async soundMissing() { return (await this.sounds.list('missing')).map(({ kind, id, ...row }) => row); }
+    async noteMissing({ type, name, describe = '' } = {}) {
+        name = soundName(name);
+        if (!name || !SOUND_KINDS.includes(type)) return;
+        const id = missingKey(type, name), old = await this.sounds.get(id);
+        await this.sounds.put([{ id, kind: 'missing', type, name, describe: String(describe || old?.describe || '').slice(0, 200), count: (old?.count || 0) + 1, at: Date.now() }], { keep: 60 });
+        this.emit('sounds', { missing: true });
+    }
+    async dismissMissing(type, name) { await this.sounds.remove(missingKey(type, name)); this.emit('sounds', { missing: true }); }
+    /** Has ElevenLabs make a sound from an English description and keeps it (an ambience loops: about 22 seconds). */
+    async generateSound({ name, type = 'sfx', describe = '' } = {}, signal) {
+        this.assertOpen();
+        if (!this.providers.currentKey('eleven')) throw Error('要先在引擎 App 里填 ElevenLabs 的密钥，才能生成音效');
+        const text = String(describe || '').trim();
+        if (!/[a-z]/i.test(text)) throw Error('写一句英文描述（比如 heavy wooden door knock），ElevenLabs 才知道做什么声音');
+        const ambience = type === 'ambience';
+        const blob = await this.providers.soundEffect({ text, loop: ambience, seconds: ambience ? 22 : 0 }, signal);
+        const [row] = await this.addSounds([{ name, type, layer: 'bed', source: 'eleven', describe: text, blob }]);
+        return row;
+    }
+    /** 导出音效包: the chosen sounds (all when none are named) in one file to share. */
+    async exportSounds(ids = null, name = '') {
+        const wanted = Array.isArray(ids) && ids.length ? new Set(ids) : null;
+        const rows = (await this.sounds.list('sound')).filter(r => !wanted || wanted.has(r.id)).reverse();
+        if (!rows.length) throw Error('还没有声音可以导出');
+        const sounds = [];
+        for (const r of rows) sounds.push({ ...soundRow(r), mime: r.mime, data: await this.base64(r.blob) });
+        return new Blob([JSON.stringify({ format: PACK_FORMAT, version: 1, name: String(name || '').slice(0, 60), at: Date.now(), sounds })], { type: 'application/json' });
+    }
+    /** 导入音效包: adds the pack's sounds (one already here, same name, kind and size, is skipped). source: who made them (自带 for the shipped pack). */
+    async importSounds(file, { source = '' } = {}) {
+        const pack = readPack(typeof file === 'string' ? file : await file.text());
+        const have = new Set((await this.sounds.list('sound')).map(r => [r.type, r.name, r.layer, r.size].join('|')));
+        const add = [];
+        for (const s of pack.sounds) {
+            let bytes;
+            try { bytes = Uint8Array.from(atob(s.data), c => c.charCodeAt(0)); } catch { continue; }
+            const key = [s.type, s.name, s.layer, bytes.length].join('|');
+            if (have.has(key)) continue;
+            have.add(key);
+            add.push({ ...s, ...(source ? { source } : {}), blob: new Blob([bytes], { type: s.mime }) });
+        }
+        await this.addSounds(add);
+        return { added: add.length, skipped: pack.sounds.length - add.length, name: pack.name };
+    }
     // ---------- 朋友圈 ----------
     /** Moments options: {auto, every, dailyMax, images, replyToMe}. */
     saveMoments(patch) {
@@ -1652,6 +1749,8 @@ export class TTSBackend {
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes, sources }) => ({ count, bytes, sources: Object.fromEntries(Object.entries(sources).map(([k, { ids, ...rest }]) => [k, rest])) })), deleteGeneratedPhotos: sources => this.deleteGeneratedPhotos(sources),
             saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
+            saveSounds: patch => this.saveSounds(clone(patch)), listSounds: () => this.listSounds(), soundBlob: id => this.soundBlob(id), addSounds: list => this.addSounds(list), updateSound: (id, patch) => this.updateSound(id, clone(patch || {})), deleteSounds: ids => this.deleteSounds([...(ids || [])]),
+            soundMissing: () => this.soundMissing(), dismissMissing: (type, name) => this.dismissMissing(type, name), generateSound: input => this.generateSound(clone(input || {})), exportSounds: (ids, name) => this.exportSounds(ids ? [...ids] : null, name), importSounds: (file, options) => this.importSounds(file, clone(options || {})),
             saveText: patch => this.saveText(clone(patch)), setTextKey: (id, key) => this.setTextKey(id, key), clearTextKey: id => this.clearTextKey(id), textKeyHint: id => this.textKeyHint(id), textModels: draft => this.textModels(clone(draft || {})),
             syncStatus: () => this.syncStatus(), saveSync: patch => this.saveSync(clone(patch)), syncNow: () => this.syncNow().then(() => this.syncStatus()), clearSyncFiles: () => this.clearSyncFiles(),
             listMoments: async () => { const here = this.here(); return (await this.moments.list()).filter(p => inSpace(p, here)); }, getMoment: id => this.moments.get(id),
@@ -1714,6 +1813,7 @@ export class TTSBackend {
         this.moments.close();
         this.apps.close();
         this.memoryStore.close();
+        this.sounds.close();
         this.drawQueue.cancelAll();
         this.closing = Promise.all([this.player.close(), this.cache.close(), this.library.close(), Promise.resolve(this.keyStore.flush?.()).then(() => this.keyStore.close?.())]);
         await this.closing;

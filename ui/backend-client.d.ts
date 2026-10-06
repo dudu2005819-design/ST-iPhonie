@@ -94,6 +94,7 @@ export interface Settings {
     chat: ChatSettings;
     moments: MomentsSettings;
     calls: CallsSettings;
+    sounds: SoundSettings;
     text: TextSettings;
     /** 向量模型 for 记忆 (key kept as KeyEngine 'embed'). */
     embed: EmbedSettings;
@@ -217,6 +218,12 @@ export interface SpokenLine { role: string; text: string; emotion?: string; tran
 export interface CallState { id: number; name: string; dir: 'in' | 'out'; state: 'ringing' | 'talking' | 'ended'; since: number; answeredAt: number; lines: CallLine[]; thinking: boolean; speaking: boolean; voiced: boolean; error: string; auto: boolean;
     ended: { state: 'answered' | 'missed' | 'declined' | 'cancelled'; by: string; duration: number } | null; }
 export interface CallsSettings { auto: boolean; every: number; dailyMax: number; ring: number; }
+/** 音效: volumes 0..1; vary: each playing a little different; generate: missing sounds made by ElevenLabs, at most `versions` of a name. */
+export interface SoundSettings { enabled: boolean; ambienceVolume: number; sfxVolume: number; vary: boolean; generate: boolean; versions: number; }
+/** A sound in the library (no audio): an ambience is a 底子 (bed, loops) or a 点缀 (dot, now and then). */
+export interface SoundRow { id: string; name: string; type: 'sfx' | 'ambience'; layer: '' | 'bed' | 'dot'; strength: '' | '轻' | '重'; source: 'mine' | 'eleven' | 'pack'; describe: string; seconds: number; mime: string; size: number; at: number; }
+/** A name the story asked for that the library has none of. */
+export interface MissingSound { type: 'sfx' | 'ambience'; name: string; describe: string; count: number; at: number; }
 export interface MomentsSettings { auto: boolean; every: number; dailyMax: number; images: boolean; replyToMe: boolean; }
 /** The user in the chat app. name '' shows the tavern's persona name. */
 export interface ChatProfile { name: string; status: 'online' | 'qme' | 'busy' | 'away' | 'hidden'; statusText: string; signature: string; bubble: 'default' | 'candy' | 'mint' | 'night' | 'ink'; frame: 'none' | 'star' | 'cat' | 'flower' | 'halo'; background: 'none' | 'clouds' | 'stars' | 'grid' | 'sakura'; backgroundPhoto: string; }
@@ -598,6 +605,21 @@ export interface BackendFacade {
     saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
     /** 朋友圈 options. */
     saveCalls(patch: Partial<CallsSettings>): CallsSettings;
+    /** 音效 options. */
+    saveSounds(patch: Partial<SoundSettings>): SoundSettings;
+    listSounds(): Promise<SoundRow[]>;
+    soundBlob(id: string): Promise<Blob | null>;
+    /** Adds sounds (the names they answer are no longer missing). */
+    addSounds(list: Array<Partial<Omit<SoundRow, 'id' | 'mime' | 'size' | 'at'>> & { name: string; blob: Blob }>): Promise<SoundRow[]>;
+    updateSound(id: string, patch: Partial<Pick<SoundRow, 'name' | 'type' | 'layer' | 'strength' | 'describe'>>): Promise<SoundRow>;
+    deleteSounds(ids: string[]): Promise<number>;
+    soundMissing(): Promise<MissingSound[]>;
+    dismissMissing(type: 'sfx' | 'ambience', name: string): Promise<void>;
+    /** ElevenLabs makes the sound from an English description and it is kept. */
+    generateSound(input: { name: string; type: 'sfx' | 'ambience'; describe: string }): Promise<SoundRow>;
+    /** 音效包 (JSON) of these sounds, all when none. */
+    exportSounds(ids?: string[] | null, name?: string): Promise<Blob>;
+    importSounds(file: Blob | string, options?: { source?: 'pack' | 'mine' | 'eleven' }): Promise<{ added: number; skipped: number; name: string }>;
     saveText(patch: TextPatch): TextSettings;
     saveEmbed(patch: Partial<EmbedSettings>): EmbedSettings;
     embedReady(): boolean;
