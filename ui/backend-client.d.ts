@@ -649,7 +649,10 @@ export interface BackendFacade {
     saveContact(contact: Partial<Contact> & { name: string }): Contact;
     deleteContact(id: string): ChatSettings;
     /** Story roles (角色 App) first, then manual contacts. */
-    chatContacts(): ChatContact[];
+    /** This card's contacts; all: every card's (to look someone up by name). */
+    chatContacts(all?: boolean): ChatContact[];
+    /** A role from the 角色 App joins this card's contacts. */
+    addRoleContact(name: string): ChatContact[];
     listThreads(): Promise<ChatThreadSummary[]>;
     getThread(id: string): Promise<ChatThread | null>;
     chatUnread(): Promise<number>;

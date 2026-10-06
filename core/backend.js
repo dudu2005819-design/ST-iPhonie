@@ -1195,9 +1195,18 @@ export class TTSBackend {
         return this.save(next).chat;
     }
     deleteContact(id) {
-        const next = this.getState();
+        const next = this.getState(), gone = next.chat.contacts.find(c => c.id === id);
         next.chat.contacts = next.chat.contacts.filter(c => c.id !== id);
+        // Its avatar goes with it, unless a role of the same name still uses it.
+        if (gone && !next.routes.some(r => r.name === gone.name) && next.chat.avatars?.[gone.name]) { const avatars = { ...next.chat.avatars }; delete avatars[gone.name]; next.chat.avatars = avatars; }
         return this.save(next).chat;
+    }
+    /** A role from the 角色 App joins this card's contacts (the card's story has not met them yet). */
+    addRoleContact(name) {
+        const route = this.settings.routes.find(r => r.name === name);
+        if (!route) throw Error('角色 App 里没有这个角色');
+        if (this.spaceKey()) this.tagRoles([name], this.spaceKey());
+        return clone(this.contacts());
     }
     previewChatPrompt(preset) {
         const p = validateChatPreset(normalizeChatPreset(clone(preset || activeChatPreset(this.settings.chat))));
@@ -1233,6 +1242,8 @@ export class TTSBackend {
         const next = { key: String(space?.key || '').slice(0, 300), name: String(space?.name || '').slice(0, 80), members: (Array.isArray(space?.members) ? space.members : []).map(String).filter(Boolean).slice(0, 30) };
         if (next.key === this.space.key && next.name === this.space.name && next.members.join('\n') === this.space.members.join('\n')) return;
         this.space = next;
+        // The card's own characters belong to it (so they do not show up in other cards as roles no story has met).
+        if (next.key && next.members.length) this.tagRoles(next.members, next.key);
         this.emit('space', { space: clone(next) });
         if (!this.here()) return;
         this.emit('chat', { threadId: '' }); this.emit('moments', {}); this.emit('forum', {}); this.emit('peek', {});
@@ -1551,7 +1562,7 @@ export class TTSBackend {
             saveChatOptions: patch => this.saveChatOptions(clone(patch)),
             wallet: () => this.wallet(), buyDecoration: (kind, key) => this.buyDecoration(kind, key), saveGift: gift => this.saveGift(gift), deleteGift: id => this.deleteGift(id),
             sendPaid: (threadId, message) => this.sendPaid(threadId, message), takeSent: (threadId, messageId, accept) => this.takeSent(threadId, messageId, accept !== false),
-            shopCatalog: () => clone({ premium: PREMIUM, kinds: DECOR_KINDS, gifts: shopGifts(this.settings.chat.wallet), ledgerKinds: LEDGER_KINDS }), saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: () => clone(this.contacts()),
+            shopCatalog: () => clone({ premium: PREMIUM, kinds: DECOR_KINDS, gifts: shopGifts(this.settings.chat.wallet), ledgerKinds: LEDGER_KINDS }), saveContact: contact => this.saveContact(contact), deleteContact: id => this.deleteContact(id), chatContacts: all => clone(all ? chatContacts(this.settings) : this.contacts()), addRoleContact: name => this.addRoleContact(name),
             listThreads: () => this.threads(), getThread: id => this.chats.get(id), chatUnread: async () => (await this.threads()).reduce((n, t) => n + (t.muted ? 0 : t.unread), 0),
             createThread: value => this.chatMutate(null, () => this.chats.create({ ...clone(value), space: this.spaceKey() })),
             updateThread: (id, patch) => this.chatMutate(id, () => this.chats.update(id, clone(patch))),

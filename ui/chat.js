@@ -181,11 +181,27 @@ export function chatApp(ctx) {
     const contacts = api.chatContacts(), stars = starred(), groups = threads.filter(t => t.type === 'group');
     const row = c => `<button class="list-row" data-action="profile" data-name="${esc(c.name)}">${avatar(c.name, c.engine, 42)}<span><strong>${esc(c.name)}</strong><small>${esc(signatureOf(c))}</small></span>${stars.includes(c.name) ? '<span class="star-mark" aria-label="特别关心">★</span>' : icon('next')}</button>`;
     const special = contacts.filter(c => stars.includes(c.name));
-    v.draw(frame(heading('联系人', btn('contact-add', icon('add'), 'round-button', 'aria-label="手动添加联系人"'), 'Contacts')
+    v.draw(frame(heading('联系人', btn('contact-add', icon('add'), 'round-button', 'aria-label="添加联系人"'), 'Contacts')
       + (special.length ? groupTitle('特别关心') + `<div class="group">${special.map(row).join('')}</div>` : '')
-      + groupTitle(`好友 · ${contacts.length}`, help('角色 App 里的角色会自动出现在这里；剧情之外的人（同学、店员、网友……）可以点右上角的「＋」手动添加，写上人设就能聊。'))
+      + groupTitle(`好友 · ${contacts.length}`, help('角色 App 里的角色会自动出现在这里（开了「按角色卡分开」时，在别的故事里出场过的角色只在那张卡里；可以点右上角的「＋」把他们加进来）。剧情之外的人（同学、店员、网友……）也在「＋」里手动添加，写上人设就能聊。'))
       + (contacts.length ? `<div class="group">${contacts.map(row).join('')}</div>` : '<p class="hint">还没有好友。</p>')
       + (groups.length ? groupTitle(`群聊 · ${groups.length}`) + `<div class="group">${groups.map(t => `<button class="list-row" data-action="open" data-id="${esc(t.id)}">${threadAvatar(t, 42)}<span><strong>${esc(t.name)}</strong><small>${t.members.length} 人</small></span>${icon('next')}</button>`).join('')}</div>` : '')));
+  }
+  /** ＋ in 联系人: a role from the 角色 App that is not here yet, or someone outside the story by hand. */
+  function addContact() {
+    const here = new Set(api.chatContacts().map(c => c.name)), roles = api.getState().routes.filter(r => r.name?.trim() && !here.has(r.name));
+    const d = ctx.dialog('添加联系人', `<div class="pick-list">
+      ${roles.map(r => `<button class="list-row" data-add-role="${esc(r.name)}">${avatar(r.name, r.voice ? r.engine : 'none', 36)}<span><strong>${esc(r.name)}</strong><small>角色 App 里的角色${r.voice ? ' · 能发语音' : ''}</small></span>${icon('add')}</button>`).join('')}
+      <button class="list-row" data-add-role="">${icon('edit')}<span><strong>手动添加</strong><small>剧情之外的人（同学、店员、网友……），写上人设就能聊</small></span></button></div>
+      ${roles.length ? '' : '<p class="hint">角色 App 里的角色都已经在联系人里了。</p>'}`);
+    d.body.addEventListener('click', e => {
+      const b = e.target.closest('[data-add-role]');
+      if (!b) return;
+      d.close();
+      const name = b.dataset.addRole;
+      if (!name) { contactDraft = {name: '', persona: ''}; mode = 'contact-edit'; render(); return; }
+      try { api.addRoleContact(name); ctx.notify(`已添加 ${name}`); render(); } catch (error) { ctx.notify(error.message, {error: true}); }
+    });
   }
   function renderContactForm() {
     v.draw(heading(contactDraft.id ? '编辑联系人' : '新联系人', '', 'Contact')
@@ -195,7 +211,7 @@ export function chatApp(ctx) {
   }
   /** A contact's card: send a message, see their posts, 特别关心. */
   function renderProfile() {
-    const c = api.chatContacts().find(x => x.name === profileOf);
+    const c = api.chatContacts().find(x => x.name === profileOf) || api.chatContacts(true).find(x => x.name === profileOf);
     if (!c) { mode = 'list'; return render(); }
     const star = starred().includes(c.name), manual = c.source === 'manual' && api.getState().chat.contacts.find(x => x.name === c.name);
     v.draw(`<div class="qq-card" data-engine="${c.engine}"><span class="qq-card-cover" aria-hidden="true"></span>${avatar(c.name, c.engine, 84)}<h2>${esc(c.name)}</h2><p>${esc(signatureOf(c))}</p>
@@ -299,7 +315,7 @@ export function chatApp(ctx) {
     if (v.disposed || ticket !== epoch) return;
     if (!thread) { mode = 'list'; threadId = null; return render(); }
     if (thread.unread) api.markThreadRead(threadId).catch(() => {});
-    const group = thread.type === 'group', contacts = api.chatContacts();
+    const group = thread.type === 'group', contacts = api.chatContacts(true);
     const voiced = thread.members.filter(n => contacts.find(c => c.name === n)?.voice).length;
     const sub = group ? `${thread.members.length} 人 · ${voiced} 人能发语音` : contacts.find(c => c.name === thread.members[0])?.source === 'manual' ? '手动联系人' : voiced ? '能发语音消息' : '还没有配音 · 只发文字';
     const bring = pendingBring(), scroller = v.root.querySelector('.msgs'), atBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
@@ -1084,7 +1100,7 @@ export function chatApp(ctx) {
         break;
       }
       case 'cancel-bring': api.chatCancelBring?.(); ctx.notify('已取消'); render(); break;
-      case 'contact-add': contactDraft = {name: '', persona: ''}; mode = 'contact-edit'; render(); break;
+      case 'contact-add': addContact(); break;
       case 'contact-edit': contactDraft = structuredClone(api.getState().chat.contacts.find(c => c.id === el.dataset.id)); mode = 'contact-edit'; render(); break;
       case 'contact-cancel': contactDraft = null; mode = 'list'; render(); break;
       case 'contact-save': {

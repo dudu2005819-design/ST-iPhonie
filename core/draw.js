@@ -503,6 +503,8 @@ const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta', 'link', 'source',
  * Parts of a reply a picture must not be put inside: every tag that spans several lines (a status bar, <details>, a
  * preset's own blocks), code fences and HTML comments, as [start, end, name]. Tags left open are not counted.
  */
+/** Blocks that hold something about the story, not the story: pictures never go in them, their lines are not offered. */
+const NOT_STORY = /^(?:bakemono|summary\w*|details|think\w*|reasoning|analysis|status\w*|statusbar|state\w*|memory|abstract|options?|choices?|branch\w*|table\w*|update\w*|var\w*|摘要|总结|状态\w*|选项|小剧场)$/i;
 export function blockRanges(source) {
   const text = String(source), ranges = [], stack = [];
   for (const m of text.matchAll(/```[\s\S]*?(?:```|$)|<!--[\s\S]*?(?:-->|$)/g)) if (m[0].includes('\n')) ranges.push([m.index, m.index + m[0].length, m[0].startsWith('<') ? '!--' : '```']);
@@ -541,11 +543,19 @@ export function paragraphs(message) {
     if (plain) out.push({text: plain.slice(0, 1200), end, blocks: around(end)});
   }
   // The story's own block: the innermost block holding the most story text (none when most of it is outside blocks).
+  // Code fences, comments and blocks that are about the story rather than the story (a memory plugin's <bakemono>
+  // summary, <details>, status bars, thinking, choices) never are; nor is any block when a fair share of the text
+  // is outside blocks (a long summary at the end must not outweigh a short reply).
   const weight = new Map();
-  // Code fences and comments are never the story's own block.
-  for (const p of out) { const key = p.blocks.find(r => r[2] !== '```' && r[2] !== '!--') || null; weight.set(key, (weight.get(key) || 0) + p.text.length); }
+  for (const p of out) {
+    // Text in a block about the story counts for no side.
+    if (p.blocks.some(r => NOT_STORY.test(r[2]))) continue;
+    const key = p.blocks.find(r => r[2] !== '```' && r[2] !== '!--') || null;
+    weight.set(key, (weight.get(key) || 0) + p.text.length);
+  }
   let main = null, best = -1;
   for (const [key, w] of weight) if (w > best) { best = w; main = key; }
+  if (main && (weight.get(null) || 0) >= best / 3) main = null;
   const mainChain = main ? ranges.filter(([a, b]) => a <= main[0] && b >= main[1]) : [];
   for (const p of out) {
     // Climb out of every block that is not the story's own (or one around it).
@@ -824,7 +834,15 @@ export function pictureInputs(settings, tag, text = '') {
     return {prompt: [...head, tag.prompt].join(', '), negative: style.negative.trim(),
       characters: roles.map(r => ({prompt: r.appearance.trim(), negative: '', position: -1})), names: roles.map(r => r.name), params};
   }
-  const roles = drawable(settings), many = spec.cast.length > 1;
+  const roles = drawable(settings);
+  // A block with no 角色 lines still shows somebody when its scene counts people: the registered ones the reply
+  // names before it, so their looks are not lost.
+  if (!spec.cast.length && peopleCount(spec.tags)) {
+    const seen = pictureRoles(settings, {...tag, characters: [], prompt: spec.tags}, text);
+    if (seen.length) return {prompt: [...head, sceneTags(spec.tags, seen.length), spec.nl].filter(Boolean).join(', '), negative: style.negative.trim(),
+      characters: seen.map(r => ({prompt: soloTags(r.appearance.trim()), negative: '', position: -1})), names: seen.map(r => r.name), params};
+  }
+  const many = spec.cast.length > 1;
   const characters = spec.cast.map(c => {
     const fixed = roles.find(r => sameName(r.name, c.name))?.appearance || spec.register.find(x => sameName(x.name, c.name))?.appearance || '';
     return {prompt: [mergeTags(soloTags(fixed), c.tags), c.nl].filter(Boolean).join(', '), negative: many ? mergeTags(withoutPeopleTags(c.negative), 'fused bodies') : c.negative || '', position: gridIndex(c.position)};

@@ -189,7 +189,8 @@ export const inSpace = (item, space) => !space?.key || !item?.space || item.spac
 export const activeSpace = (settings, space) => settings.chat?.partition === 'card' && space?.key ? space : null;
 export function chatContacts(settings, space = null) {
   // A card's contacts: its own character(s), the roles that have spoken in its story, and contacts added under it.
-  const here = r => !space?.key || (space.members || []).includes(r.name) || (Array.isArray(r.cards) && r.cards.includes(space.key));
+  // A role no story has met yet (just made in the 角色 App) belongs to every card until one does.
+  const here = r => !space?.key || (space.members || []).includes(r.name) || !(Array.isArray(r.cards) && r.cards.length) || r.cards.includes(space.key);
   const roles = settings.routes.filter(r => !isPlaceholderRole(r.name) && here(r)).map(r => ({name: r.name, source: 'role', voice: !!r.voice, engine: r.voice ? r.engine : 'none', language: r.language || settings.general.defaultLanguage, persona: ''}));
   const manual = settings.chat.contacts.filter(c => !roles.some(r => r.name === c.name) && inSpace(c, space)).map(c => ({name: c.name, source: 'manual', id: c.id, voice: false, engine: 'none', language: '', persona: c.persona}));
   return [...roles, ...manual];

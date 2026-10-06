@@ -2,7 +2,7 @@
 // (generateRaw): the prompt carries the chat preset, each contact's persona or character card, the user's persona,
 // recent story messages and the chat history. Nothing is written into the story unless the user brings a chat
 // into it; that text is injected once, into the next story reply.
-import {buildChatRequest, parseChatReply, bringText, plainStory, activeChatPreset, messageLine, cleanTagged} from './core/chat.js';
+import {buildChatRequest, parseChatReply, bringText, plainStory, activeChatPreset, messageLine, cleanTagged, chatContacts} from './core/chat.js';
 import {worldInfoFor, loreOptions} from './host-lore.js';
 
 export function createChatHost({context, settings, backend, notice, memory = null, onCall = () => {}}) {
@@ -30,9 +30,10 @@ export function createChatHost({context, settings, backend, notice, memory = nul
     return out;
   }
   function members(thread) {
-    const s = settings(), contacts = backend.contacts();
+    // This card's contact first; a member the card's story has not met is still who they are (voice and all).
+    const s = settings(), contacts = backend.contacts(), all = chatContacts(s);
     return thread.members.map(name => {
-      const c = contacts.find(x => x.name === name);
+      const c = contacts.find(x => x.name === name) || all.find(x => x.name === name);
       return {name, persona: c?.persona || '', card: c?.persona ? '' : card(name), voice: !!c?.voice, language: c?.language || s.general.defaultLanguage};
     });
   }
