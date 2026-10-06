@@ -626,7 +626,7 @@ export class TTSBackend {
         const p = patch && typeof patch === 'object' ? patch : {};
         const text = normalizeText({ ...this.settings.text, ...Object.fromEntries(['source', 'active', 'presets'].filter(key => key in p).map(key => [key, clone(p[key])])) });
         const active = text.presets.find(x => x.id === text.active);
-        for (const key of ['name', 'url', 'model', 'temperature', 'maxTokens']) if (key in p) active[key] = p[key];
+        for (const key of ['name', 'url', 'model', 'temperature', 'maxTokens', 'thinking']) if (key in p) active[key] = p[key];
         return normalizeText(text);
     }
     saveText(patch) {

@@ -200,7 +200,7 @@ export interface VoiceTextOptions { mode: 'translation' | 'original' | 'both'; a
 export interface SyncSettings { enabled: boolean; }
 export interface SyncStatus { enabled: boolean; available: boolean; parts: Record<string, string>; busy: boolean; pending: boolean; error: string; lastAt: number; memoryAt: number;
     remote: { savedAt: number; deviceName: string; device: string } | null; lastResult?: { pulled: string[]; pushed: string[]; merged: string[] }; }
-export interface TextPreset { id: string; name: string; url: string; model: string; temperature: number; maxTokens: number; }
+export interface TextPreset { id: string; name: string; url: string; model: string; temperature: number; maxTokens: number; /** 关掉思考 sends enable_thinking: false and thinking: disabled */ thinking?: 'auto' | 'off'; }
 export interface TextSettings { source: 'tavern' | 'custom'; active: string; presets: TextPreset[]; }
 /** 向量模型: an OpenAI-compatible Embeddings API; off = 记忆 searches locally. */
 export interface EmbedSettings { enabled: boolean; url: string; model: string; }

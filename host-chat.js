@@ -5,6 +5,7 @@
 import {buildChatRequest, parseChatReply, bringText, plainStory, activeChatPreset, messageLine, cleanTagged, chatContacts} from './core/chat.js';
 import {worldInfoFor, loreOptions} from './host-lore.js';
 import {pictureInputs} from './core/draw.js';
+import {storyLines} from './core/moments.js';
 
 export function createChatHost({context, settings, backend, notice, memory = null, onCall = () => {}}) {
   const busy = new Map();
@@ -20,16 +21,8 @@ export function createChatHost({context, settings, backend, notice, memory = nul
     return [c.description, c.personality && '性格：' + c.personality].filter(Boolean).join('\n')
       .replaceAll('{{char}}', name).replaceAll('{{user}}', userName()).slice(0, 2000);
   }
-  function story(limit) {
-    const chat = context()?.chat || [], out = [];
-    for (let i = chat.length - 1; i >= 0 && out.length < limit; i--) {
-      const m = chat[i];
-      if (!m || m.is_system) continue;
-      const text = plainStory(m.mes);
-      if (text) out.unshift({name: m.name || (m.is_user ? userName() : '旁白'), text: text.slice(0, 600)});
-    }
-    return out;
-  }
+  // The same recent story as the other apps (core/moments.js storyLines).
+  const story = limit => storyLines(context()?.chat || [], limit, userName());
   function members(thread) {
     // This card's contact first; a member the card's story has not met is still who they are (voice and all).
     const s = settings(), contacts = backend.contacts(), all = chatContacts(s);
