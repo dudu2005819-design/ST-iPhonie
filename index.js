@@ -236,7 +236,7 @@ function connect(source){
   forumReact:id=>{check();return appsHost.forumReact(id);},
   forumReply:(id,replyId)=>{check();return appsHost.forumReply(id,replyId);},
   forumBusy:()=>{check();return appsHost.busy('forum');},
-  peekLook:name=>{check();return appsHost.peekLook(name);},
+  peekLook:(name,keep)=>{check();return appsHost.peekLook(name,{keep:keep===true});},
   memoryTidy:threadId=>{check();return memoryHost.tidy(threadId,{force:true});},
   memoryStatus:threadId=>{check();return memoryHost.status(threadId);},
   storySources:()=>{check();return memoryHost.storySources();},

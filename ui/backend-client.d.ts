@@ -747,7 +747,8 @@ export interface BackendAPI extends BackendFacade {
     forumReply(id: string, replyId: string): Promise<ForumPost>;
     forumBusy(): boolean;
     /** 查手机: looks into a character's phone (a new snapshot). */
-    peekLook(name: string): Promise<PeekSnapshot>;
+    /** keep: 接着上次看 — only what is new since last time, put onto the phone as last seen. */
+    peekLook(name: string, keep?: boolean): Promise<PeekSnapshot>;
     /** 立即整理: writes up what is due in the chat's memory; resolves with how many summaries were written. */
     memoryTidy(threadId: string): Promise<number>;
     memoryStatus(threadId: string): MemoryStatus;
