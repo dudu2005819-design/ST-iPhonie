@@ -595,6 +595,7 @@ export function suggestRequest(settings, {before = []} = {}) {
     gpt ? '用英文写，逗号分隔，danbooru tag 和简短的英文短语都可以：人数、动作、表情、服装、场景、光线、构图。不写露骨内容。'
       : '用英文 danbooru tag，逗号分隔：人数（1girl、2girls 等）、动作、表情、服装、场景、光线、构图。',
     ...peopleRules(settings),
+    ...sentenceRule(settings),
     '不写画师名和质量词。只输出提示词，不要思考过程、解释、标题或任何标签。',
     ...(n => n ? [`现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。这是上限，不是目标：写准、写具体，画面里有的都写清楚（动作、姿势、表情、视线、服装和配饰、光线、镜头、背景），但不为了凑长度重复、堆近义词或加画面里没有的东西；不要超过。`] : [])(gpt ? null : budgetNumbers(settings))
   ].join('\n');
@@ -605,6 +606,23 @@ export function suggestRequest(settings, {before = []} = {}) {
  * Who may be in a prompt line: works' characters by the tag the model knows; registered people by name only (their
  * looks are added by the plugin), named on a last 人物 line. cast: the people already added in the 角色 tab.
  */
+/**
+ * English sentences after the tags, for what tags cannot say (where things are, light against dark): NovelAI V4 and
+ * later read plain English. V5 has room for two or three; V4 / V4.5 (512 tokens) for one. Never names, likenesses or
+ * moods that cannot be drawn — what went wrong when sentences were free (a name the model does not know, "like an
+ * octopus" drawn as an octopus). V3 and ComfyUI read tags only; GPT takes phrases anyway.
+ */
+export function sentenceCount(settings) {
+  const d = settings.draw, model = String(d?.params?.model || '');
+  if (d?.engine && d.engine !== 'nai') return 0;
+  return /diffusion-5/.test(model) ? 3 : /diffusion-4/.test(model) ? 1 : 0;
+}
+function sentenceRule(settings) {
+  const n = sentenceCount(settings);
+  if (!n) return [];
+  return [`tag 写全之后，可以在这一行最后补${n > 1 ? '两三句' : '一句'}简短的英文描述句（这个模型读得懂英文句子${n > 1 ? '' : '，但上限只有 512 token，句子很占地方，所以只补一句'}），只写 tag 说不清的东西：位置和空间关系（什么在什么里面、谁在哪一边）、明暗和冷暖的对比、几样东西之间的关系。比如 Inside the umbrella there is a clear blue sky with sunlight, while outside it is a dark heavy storm.`,
+    '描述句的规矩：tag 是主体，句子只补充不代替；不写人名，用 the girl、the boy、the woman、the man 这类；不写比喻（不用 like、as if、resembling 这类词）；不写画不出来的抽象词（孤独、温柔、命运这类），每句只写看得见的东西。'];
+}
 function peopleRules(settings, cast = []) {
   const known = drawable(settings).map(r => r.name).filter(n => !cast.some(c => sameName(c, n)));
   return [
@@ -626,6 +644,7 @@ export function writeRequest(settings, {idea = '', cast = []} = {}) {
       : '用英文 danbooru tag，逗号分隔：人数（1girl、2girls、1boy 1girl 等）、动作、姿势、表情、视线、服装和配饰、场景和背景、光线、镜头和构图、氛围。',
     '用户写的可能是中文、可能很短：按这个意思补成一幅完整、有画面感的图，没说的细节你来定，但不要改掉想要的东西。',
     ...peopleRules(settings, cast),
+    ...sentenceRule(settings),
     '不写画师名和质量词。只输出提示词，不要思考过程、解释、标题或任何标签。',
     n ? `现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。这是上限，不是目标：写准、写具体，画面里有的都写清楚（动作、姿势、表情、视线、服装和配饰、光线、镜头、背景），但不为了凑长度重复、堆近义词或加画面里没有的东西；不要超过。` : ''
   ].filter(Boolean).join('\n');
@@ -655,9 +674,9 @@ export function promptLength(settings) {
   return n ? Math.min(6000, Math.round(n.left * 1.5) + 1500) : 1500;
 }
 /** The follow-up asking for a fuller line: what it holds now and how much room is left. */
-export function fillUpRequest(prompt, {line, people = [], used, left, tags}) {
+export function fillUpRequest(prompt, {line, people = [], used, left, tags, sentences = 0}) {
   return [...prompt, {role: 'assistant', content: line + (people.length ? `\n人物：${people.join('、')}` : '')},
-    {role: 'user', content: `这一行现在约 ${used} token，离上限还差约 ${left - used} token（大约 ${tags} 个 tag）。保留上面所有内容，再补充更多具体的细节：服装和配饰的细节、发型、表情和视线、姿势和手的动作、背景里的物件、光线和色调、镜头和构图。只补和这个画面相符、想法或剧情里有依据（或能合理推出）的东西；不重复已有的 tag，不堆近义词，不加画面里没有的人和物。写到上限的八九成，但不要超过。输出扩写后的完整一行${people.length ? '，最后一行照旧写「人物：…」' : ''}，不要解释。`}];
+    {role: 'user', content: `这一行现在约 ${used} token，离上限还差约 ${left - used} token（大约 ${tags} 个 tag）。保留上面所有内容，再补充更多具体的细节：服装和配饰的细节、发型、表情和视线、姿势和手的动作、背景里的物件、光线和色调、镜头和构图。只补和这个画面相符、想法或剧情里有依据（或能合理推出）的东西；不重复已有的 tag，不堆近义词，不加画面里没有的人和物。${sentences ? `末尾的英文描述句加起来不超过 ${sentences} 句。` : ''}写到上限的八九成，但不要超过。输出扩写后的完整一行${people.length ? '，最后一行照旧写「人物：…」' : ''}，不要解释。`}];
 }
 /** The prompt line out of a reply: thinking blocks, tags, code fences and labels taken out. */
 export function cleanSuggestion(text) {

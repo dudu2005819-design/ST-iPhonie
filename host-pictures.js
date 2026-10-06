@@ -10,7 +10,7 @@
 // Redrawing adds a version (the old ones stay for comparison); deleting removes the shown version and its file.
 // When the last version is deleted the record becomes {removed: true, versions: []}, so it is not drawn again
 // automatically. Older records ({url, seed, …}) read as a single version.
-import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact, suggestRequest, writeRequest, promptLength, readSuggestion, budgetNumbers, fillUpRequest, sameName} from './core/draw.js';
+import {parsePictures, pictureInputs, planRequest, insertPlanned, withoutPictures, sameExact, suggestRequest, writeRequest, promptLength, readSuggestion, budgetNumbers, fillUpRequest, sameName, sentenceCount} from './core/draw.js';
 import {tokenBudget, loadCounter, countField, tagCost, estimateTokens} from './core/tokens.js';
 import {openImageViewer} from './image-viewer.js';
 import {downloadAction} from './download.js';
@@ -410,7 +410,7 @@ export function createPictureHost({context, redrawMessage = (id, message) => con
     const left = Math.max(0, n.left - looks);
     let result = first, used = countField(count, first.prompt), messages = prompt;
     for (let round = 0; prompt && round < 2 && used < left * 0.75; round++) {
-      messages = fillUpRequest(messages, {line: result.prompt, people: result.people, used, left, tags: Math.floor((left - used) / tagCost(count))});
+      messages = fillUpRequest(messages, {line: result.prompt, people: result.people, used, left, tags: Math.floor((left - used) / tagCost(count)), sentences: sentenceCount(s)});
       let more;
       try { more = readSuggestion(s, await backend.generateText(context(), {prompt: messages, trimNames: false, responseLength: promptLength(s)})); } catch { break; }
       const now = countField(count, more.prompt);
