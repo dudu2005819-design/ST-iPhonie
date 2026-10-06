@@ -1578,6 +1578,15 @@ export class TTSBackend {
         this.emit('phone', { preferences: { ...phone, theme: this.settings.theme } });
         return { ...phone, theme: this.settings.theme };
     }
+    /** Deletes album photos; whatever showed them lets go (朋友圈 and 查手机 pictures go back to «not drawn»). */
+    async deletePhotos(ids) {
+        const gone = new Set((Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean));
+        for (const id of gone) await this.library.deletePhoto(id);
+        if (gone.size) await this.#forgetPhotos(gone);
+        this.emit('library', { collection: 'photos' });
+        this.emit('phone', { preferences: await this.getPhone() });
+        return gone.size;
+    }
     async mutateLibrary(collection, method, ...args) {
         const result = await this.library[method](...args.map(clone));
         this.emit('library', { collection });
@@ -1623,7 +1632,7 @@ export class TTSBackend {
             getFavorite: id => this.library.getFavorite(id), playFavorite: id => this.playFavorite(id),
             deleteFavorite: id => this.mutateLibrary('favorites', 'deleteFavorite', id),
             listPhotos: () => this.library.listPhotos(), addPhoto: value => this.mutateLibrary('photos', 'addPhoto', value),
-            getPhoto: id => this.library.getPhoto(id), deletePhoto: id => this.mutateLibrary('photos', 'deletePhoto', id),
+            getPhoto: id => this.library.getPhoto(id), deletePhoto: id => this.deletePhotos([id]).then(n => n > 0), deletePhotos: ids => this.deletePhotos(ids),
             listNotes: () => this.library.listNotes(), saveNote: value => this.mutateLibrary('notes', 'saveNote', value), deleteNote: id => this.mutateLibrary('notes', 'deleteNote', id),
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes, sources }) => ({ count, bytes, sources: Object.fromEntries(Object.entries(sources).map(([k, { ids, ...rest }]) => [k, rest])) })), deleteGeneratedPhotos: sources => this.deleteGeneratedPhotos(sources),

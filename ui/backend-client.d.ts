@@ -568,6 +568,8 @@ export interface BackendFacade {
     addPhoto(value: PhotoInput): Promise<Photo>;
     getPhoto(id: string): Promise<Photo | null>;
     deletePhoto(id: string): Promise<boolean>;
+    /** Deletes several album photos at once; 朋友圈 and 查手机 pictures among them go back to «not drawn». */
+    deletePhotos(ids: string[]): Promise<number>;
     listNotes(): Promise<Note[]>;
     saveNote(value: NoteInput): Promise<Note>;
     deleteNote(id: string): Promise<boolean>;

@@ -1634,3 +1634,12 @@ button.gift-item[data-short]{opacity:.55}
 .storage-fold .row-text strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .storage-fold .part-size{white-space:nowrap}
 .storage-fold .chip-button{flex-shrink:0;white-space:nowrap}
+
+/* 相册: choosing several photos to delete. */
+.gallery-tools{display:flex;gap:6px;align-items:center}
+.photo-grid.selecting button{position:relative}
+.photo-grid.selecting button::after{content:'';position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.photo-grid.selecting button[aria-pressed=true]::after{background:var(--accent-btn) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/14px no-repeat;border-color:var(--accent-btn)}
+.photo-grid.selecting button[aria-pressed=true] img{opacity:.78}
+.select-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:8px;margin:10px -4px 0;padding:10px 12px;border-radius:16px;background:var(--card);box-shadow:0 -6px 18px -10px rgba(20,40,80,.4);z-index:2}
+.select-bar>span{flex:1;font-size:13px;font-weight:700;color:var(--ink2)}

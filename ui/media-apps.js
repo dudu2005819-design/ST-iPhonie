@@ -61,7 +61,8 @@ export function libraryApp(ctx) {
 
 export function galleryApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'gallery'), urls = new Set();
-  let current = null, epoch = 0;
+  // selecting: the photos ticked while choosing several (null when not choosing); shown: the ids in the grid, in order.
+  let current = null, epoch = 0, selecting = null, shown = [];
   const clear = () => { for (const url of urls) ctx.win.URL.revokeObjectURL(url); urls.clear(); };
   const urlFor = blob => { const url = ctx.win.URL.createObjectURL(blob); urls.add(url); return url; };
   const photoFile = async id => { const photo = await api.getPhoto(id); if (!photo) throw Error('这张照片已经不在了'); return {source: photo.blob, name: photo.name}; };
@@ -79,8 +80,13 @@ export function galleryApp(ctx) {
     const rows = await api.listPhotos();
     if (v.disposed || ticket !== epoch) return;
     clear();
-    v.draw(heading('相册', importButton, `Album · ${rows.length}`) + (rows.length
-      ? `<div class="photo-grid">${rows.map(r => `<button data-action="photo" data-id="${esc(r.id)}" aria-label="查看 ${esc(r.name)}"><img loading="lazy" data-photo="${esc(r.id)}" alt="${esc(r.name)}"></button>`).join('')}</div>`
+    shown = rows.map(r => r.id);
+    if (selecting) selecting = new Set([...selecting].filter(id => shown.includes(id)));
+    if (!rows.length) selecting = null;
+    const tools = selecting ? btn('select-cancel', '取消', 'chip-button') : (rows.length ? btn('select', icon('check') + '选择', 'chip-button') : '') + importButton;
+    v.draw(heading('相册', `<span class="gallery-tools">${tools}</span>`, `Album · ${rows.length}`) + (rows.length
+      ? `<div class="photo-grid${selecting ? ' selecting' : ''}">${rows.map(r => `<button data-action="photo" data-id="${esc(r.id)}" aria-label="${selecting ? '选择' : '查看'} ${esc(r.name)}"${selecting ? ` aria-pressed="${selecting.has(r.id)}"` : ''}><img loading="lazy" data-photo="${esc(r.id)}" alt="${esc(r.name)}"></button>`).join('')}</div>`
+        + (selecting ? `<div class="select-bar"><span data-select-count>${countText()}</span>${btn('select-all', allText(), 'text-button')}${btn('select-delete', icon('trash') + '删除', 'danger', selecting.size ? '' : 'disabled')}</div>` : '')
       : empty('留住喜欢的画面', '从本地导入照片，也可以设为手机壁纸。', 'image')));
     for (const row of rows) {
       const photo = await api.getPhoto(row.id);
@@ -88,7 +94,21 @@ export function galleryApp(ctx) {
       if (photo) { const img = [...v.root.querySelectorAll('[data-photo]')].find(el => el.dataset.photo === row.id); if (img) img.src = urlFor(photo.blob); }
     }
   }
-  v.back = () => { if (!current) return false; current = null; render().catch(e => ctx.notify(e.message)); return true; };
+  const countText = () => selecting.size ? `已选 ${selecting.size} 张` : '点照片来选择';
+  const allText = () => selecting.size === shown.length ? '全不选' : '全选';
+  /** Ticks change in place (the grid is not drawn again, which would load every picture again). */
+  function syncSelection() {
+    for (const b of v.root.querySelectorAll('.photo-grid [data-id]')) b.setAttribute('aria-pressed', String(selecting.has(b.dataset.id)));
+    const count = v.root.querySelector('[data-select-count]'), all = v.root.querySelector('[data-action=select-all]'), del = v.root.querySelector('[data-action=select-delete]');
+    if (count) count.textContent = countText();
+    if (all) all.textContent = allText();
+    if (del) del.disabled = !selecting.size;
+  }
+  v.back = () => {
+    if (current) { current = null; render().catch(e => ctx.notify(e.message)); return true; }
+    if (selecting) { selecting = null; render().catch(e => ctx.notify(e.message)); return true; }
+    return false;
+  };
   v.refresh = render;
   const dispose = v.dispose;
   v.dispose = () => { epoch++; clear(); dispose(); };
@@ -102,7 +122,19 @@ export function galleryApp(ctx) {
   });
   v.on('click', '[data-action]', async el => {
     switch (el.dataset.action) {
-      case 'photo': current = el.dataset.id; await render(); break;
+      case 'photo':
+        if (selecting) { const id = el.dataset.id; if (selecting.has(id)) selecting.delete(id); else selecting.add(id); syncSelection(); break; }
+        current = el.dataset.id; await render(); break;
+      case 'select': selecting = new Set(); await render(); break;
+      case 'select-cancel': selecting = null; await render(); break;
+      case 'select-all': selecting = selecting.size === shown.length ? new Set() : new Set(shown); syncSelection(); break;
+      case 'select-delete': {
+        const ids = [...selecting];
+        if (!ids.length || !await ctx.confirm(`删除这 ${ids.length} 张照片？`, '用它们当的壁纸、图标、头像和聊天背景会恢复默认；朋友圈配图和查手机照片变回「没画」，想要可以再画。')) break;
+        const n = await v.busy(el, () => api.deletePhotos(ids));
+        selecting = null; await render(); ctx.notify(`已删除 ${n} 张`);
+        break;
+      }
       case 'zoom': {
         const img = el.querySelector('img'), id = current;
         openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, actions: [
