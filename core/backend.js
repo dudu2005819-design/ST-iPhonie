@@ -44,6 +44,24 @@ async function vibeThumbnail(base64) {
         return canvas.toDataURL('image/jpeg', 0.82);
     } catch { return ''; }
 }
+/**
+ * A vibe's picture kept small: the long side at most 1024px, as JPEG. The picture is only sent again to encode it for
+ * another model or 提取信息量 (encodings already made are kept as they are), and a full-size PNG kept as base64 took
+ * 1–2 MB a vibe. Returns the base64 unchanged when it is small already, when this one is not smaller, or without a canvas.
+ */
+async function smallVibeImage(base64) {
+    try {
+        if (!base64 || base64.length < 300 * 1024 || typeof createImageBitmap !== 'function' || !globalThis.document?.createElement) return base64;
+        const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(base64), c => c.charCodeAt(0))]));
+        const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height)), canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const g = canvas.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, canvas.width, canvas.height);
+        g.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close?.();
+        const small = canvas.toDataURL('image/jpeg', 0.92).replace(/^data:[^,]*,/, '');
+        return small && small.length < base64.length * 0.8 ? small : base64;
+    } catch { return base64; }
+}
 const clone = value => structuredClone(value);
 const engineCheck = engine => { if (!ENGINES.includes(engine)) throw Error('引擎无效'); };
 // Keys cover the voice engines, NovelAI for drawing, and llm (the phone's own text model).
@@ -951,8 +969,13 @@ export class TTSBackend {
         if (!row) throw Error('这个 Vibe 已经不在了');
         try { return JSON.parse(await row.blob.text()); } catch { throw Error('这个 Vibe 的数据坏了，请删掉重新导入'); }
     }
+    /** Swappable in tests (no canvas there). */
+    shrinkVibeImage(base64) { return smallVibeImage(base64); }
     async storeVibe(doc) {
         if (!doc.thumbnail && doc.image) { const thumb = await vibeThumbnail(doc.image); if (thumb) doc = { ...doc, thumbnail: thumb }; }
+        // The picture is kept small; the vibe keeps its id (taken from the picture it was made from), so groups and
+        // a later import of the same picture still find it.
+        if (doc.image) { const small = await this.shrinkVibeImage(doc.image); if (small !== doc.image) doc = { ...doc, image: small }; }
         const summary = vibeSummary(doc);
         await this.library.saveVibe({ id: doc.id, name: doc.name, meta: summary, blob: new Blob([JSON.stringify(doc)], { type: 'application/json' }) });
         this.vibes.set(doc.id, summary);
@@ -1001,6 +1024,23 @@ export class TTSBackend {
         }
         this.emit('draw', { vibes: true });
         return result;
+    }
+    /** Makes the pictures of the vibes saved before small (see smallVibeImage): {count, before, after} in bytes. */
+    async compactVibes() {
+        this.assertOpen();
+        const rows = await this.library.listVibes();
+        let count = 0;
+        for (const row of rows) {
+            const doc = await this.vibeDoc(row.id);
+            if (!doc.image) continue;
+            const small = await this.shrinkVibeImage(doc.image);
+            if (small === doc.image) continue;
+            await this.storeVibe({ ...doc, image: small });
+            count++;
+        }
+        const total = list => list.reduce((n, row) => n + (row.size || 0), 0);
+        this.emit('draw', { vibes: true });
+        return { count, before: total(rows), after: total(await this.library.listVibes()) };
     }
     /** Renames a vibe or sets its own strength (used when it is used alone, and as the default when added to a group). */
     async updateVibe(id, patch = {}) {
@@ -1562,7 +1602,7 @@ export class TTSBackend {
             comfyLoras: options => this.comfyLoras(options),
             saveDrawPreset: preset => this.saveDrawPreset(preset), deleteDrawPreset: id => this.deleteDrawPreset(id), previewDrawPrompt: preset => this.previewDrawPrompt(preset),
             naiSubscription: refresh => this.naiSubscription(refresh), naiProbe: () => this.naiProbe(), fishProbe: () => { this.assertOpen(); keyCheck('fish'); return this.providers.probeFish(clone(this.settings.connections.fish)); },
-            listVibes: () => this.listVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),
+            listVibes: () => this.listVibes(), compactVibes: () => this.compactVibes(), importVibes: (files, options) => this.importVibes(files, clone(options || {})), updateVibe: (id, patch) => this.updateVibe(id, clone(patch || {})), deleteVibe: id => this.deleteVibe(id), deleteVibes: ids => this.deleteVibes([...(ids || [])]), exportVibes: target => this.exportVibes(clone(target || {})), vibePlan: model => clone(this.vibePlan(model || this.settings.draw.params.model)), drawQuote: params => this.drawQuote(params),
             generateImage: input => this.generateImage(input).then(({ blob, ...result }) => result),
             drawQueue: () => this.drawQueue.list(), cancelDraw: key => this.drawQueue.cancel(key), cancelAllDraws: () => this.drawQueue.cancelAll(),
             cloudQueueError: () => this.drawQueue.remoteError, testCloudQueue: value => this.testCloudQueue(value), newRoomCode: () => newRoomCode(),

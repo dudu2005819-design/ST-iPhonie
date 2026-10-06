@@ -1624,5 +1624,13 @@ button.gift-item[data-short]{opacity:.55}
 .msg.typing-row{animation:fade .2s both}
 @media (prefers-reduced-motion:reduce){.msg.fresh,.msg.typing-row{animation:none}}
 
-/* 本地资料, part by part. */
-.storage-parts{display:flex;flex-wrap:wrap;gap:4px 12px;padding:0 16px 10px;font-size:12px;color:var(--ink2)}
+/* 本地资料: a row of the 存储 group that opens for what takes the room. */
+.storage-fold{background:none;box-shadow:none;border-radius:0;margin:0;padding:0}
+.storage-fold>summary{min-height:58px;padding:10px 0;font-size:inherit;font-weight:inherit;gap:10px}
+.storage-fold>summary span{flex:1;white-space:nowrap;font-weight:800}
+.storage-fold>summary small{white-space:nowrap;font-weight:600}
+.storage-fold>.setting-row{min-height:48px;padding:6px 0 6px 12px;border-left:2px solid var(--line)}
+.storage-fold .row-text{flex:1;min-width:0}
+.storage-fold .row-text strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.storage-fold .part-size{white-space:nowrap}
+.storage-fold .chip-button{flex-shrink:0;white-space:nowrap}

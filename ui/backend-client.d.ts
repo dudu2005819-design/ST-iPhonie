@@ -507,6 +507,8 @@ export interface BackendFacade {
     drawQuote(params?: Partial<DrawParams>): DrawQuote;
     /** Saved vibes (summaries, newest first). */
     listVibes(): VibeSummary[];
+    /** Makes the pictures of saved vibes small (encodings stay): how many changed, and the bytes before and after. */
+    compactVibes(): Promise<{ count: number; before: number; after: number }>;
     /** Imports .naiv4vibe, .naiv4vibebundle, 智绘姬 exports and pictures; groups in the files become groups. */
     importVibes(files: ArrayLike<File>, options?: { names?: boolean }): Promise<{ added: number; updated: number; renamed: number; groups: number; errors: Array<{ name: string; message: string }> }>;
     updateVibe(id: string, patch: { name?: string; strength?: number }): Promise<VibeSummary>;

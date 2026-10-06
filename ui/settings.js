@@ -161,8 +161,9 @@ export function settingsApp(ctx) {
       + groupTitle('存储')
       + `<div class="group">${toggle('cacheEnabled', '保存语音缓存', s.general.cacheEnabled, '已生成的音频用于重播。清缓存不会删除收藏、相册、备忘录或参考音频。')}
           <div class="setting-row"><span>语音缓存</span><small>${cache.available ? cache.count + ' 段 · ' + size(cache.bytes) : '本地缓存不可用'}</small></div>
-          <div class="setting-row"><span>本地资料</span><small>${library ? size(library.bytes) + ' / ' + size(library.limit) : '无法读取'}</small></div>
-          ${library?.sizes ? `<div class="storage-parts">${[['photos', '相册', '张'], ['favorites', '语音收藏', '段'], ['references', '参考音频', '段'], ['vibes', 'Vibe 参考图', '张'], ['notes', '备忘录', '条']].filter(([k]) => library[k]).map(([k, label, unit]) => `<span>${label} ${library[k]} ${unit} · ${size(library.sizes[k] || 0)}${k === 'photos' && drawn?.count ? `（画出来的 ${drawn.count} 张）` : ''}</span>`).join('') || '<span>什么都没有存</span>'}</div>` : ''}
+          ${library?.sizes ? `<details class="storage-fold" data-group="storage-parts"><summary><span>本地资料</span><small>${size(library.bytes)} / ${size(library.limit)}</small></summary>
+            ${[['photos', '相册', '张'], ['favorites', '语音收藏', '段'], ['references', '参考音频', '段'], ['vibes', 'Vibe 参考图', '张'], ['notes', '备忘录', '条']].filter(([k]) => library[k]).map(([k, label, unit]) => `<div class="setting-row"><span class="row-text"><strong>${label}</strong><small>${library[k]} ${unit}${k === 'photos' && drawn?.count ? `，画出来的 ${drawn.count} 张` : ''}</small></span><small class="part-size">${size(library.sizes[k] || 0)}</small>${k === 'vibes' && library.sizes.vibes > 300 * 1024 * library.vibes ? btn('vibes-compact', '压缩原图', 'chip-button') : ''}</div>`).join('') || '<div class="setting-row"><span>什么都没有存</span></div>'}</details>`
+            : `<div class="setting-row"><span>本地资料</span><small>${library ? size(library.bytes) + ' / ' + size(library.limit) : '无法读取'}</small></div>`}
           <div class="setting-row"><span>相册里的绘图</span><small>${drawn ? drawn.count + ' 张 · ' + size(drawn.bytes) : '无法读取'}</small></div>
           ${chatPictures ? `<div class="setting-row"><span>当前聊天的正文图片</span><small>${chatPictures.count} 张 · 存在酒馆</small></div>` : ''}</div>
         <details class="tool-fold" data-group="storage-clear"><summary>${icon('trash')}清理<small>语音缓存 · 相册里的绘图（绘图 App、正文、查手机、朋友圈）· 正文图片</small></summary><div>
@@ -299,6 +300,13 @@ export function settingsApp(ctx) {
         await v.busy(el, async () => ctx.notify('已下载 ' + await saveFile(ctx.doc, new Blob([text], {type: 'text/plain;charset=utf-8'}), `ST-iPhonie 自检 ${stamp}`)));
         break;
       }
+      case 'vibes-compact':
+        if (await ctx.confirm('压缩 Vibe 原图？', 'Vibe 里存的原图会缩到长边 1024、存成 JPEG，一张从一两 MB 变成一两百 KB。已经编码过的模型照常用、不花 Anlas；以后换模型或换提取信息量重新编码时用的是缩小后的图，效果基本一样。导出的 .naiv4vibe 也是缩小后的图。')) {
+          const r = await v.busy(el, () => api.compactVibes());
+          await render();
+          ctx.notify(r.count ? `压缩了 ${r.count} 张，从 ${size(r.before)} 变成 ${size(r.after)}` : '都已经是小图了');
+        }
+        break;
       case 'clear-drawn':
         await clearDrawn();
         break;
