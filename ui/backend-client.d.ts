@@ -180,8 +180,10 @@ export interface SettingsSnapshot { state: Settings; revision: number; }
 /** 聊天预设: how phone contacts reply, how much they see, and how a chat is brought into the story. */
 export interface ChatPreset {
     id: string; name: string;
-    /** Recent story messages the reply prompt includes (0-40). */ context: number;
-    /** Recent chat messages the reply prompt includes (2-200). */ history: number;
+    /** Recent story messages the reply prompt includes (0-100). */ context: number;
+    /** Recent chat messages the reply prompt includes (2-500). */ history: number;
+    /** Characters of one story message, of all of them, of 世界书 a phone request takes (0: no limit of the phone's own). */
+    storyEach?: number; storyTotal?: number; loreMax?: number;
     /** Template for 带进剧情; must contain {{聊天记录}}. */ bring: string;
     /** Where the brought chat is injected into the next story request. */ injection: Injection;
     /** Most posts one 朋友圈 refresh makes (1-5). */ posts: number;

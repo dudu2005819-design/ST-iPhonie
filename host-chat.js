@@ -21,8 +21,8 @@ export function createChatHost({context, settings, backend, notice, memory = nul
     return [c.description, c.personality && '性格：' + c.personality].filter(Boolean).join('\n')
       .replaceAll('{{char}}', name).replaceAll('{{user}}', userName()).slice(0, 2000);
   }
-  // The same recent story as the other apps (core/moments.js storyLines).
-  const story = limit => storyLines(context()?.chat || [], limit, userName());
+  // The same recent story as the other apps (core/moments.js storyLines), as much as the chat preset says.
+  const story = preset => storyLines(context()?.chat || [], preset, userName());
   function members(thread) {
     // This card's contact first; a member the card's story has not met is still who they are (voice and all).
     const s = settings(), contacts = backend.contacts(), all = chatContacts(s);
@@ -43,7 +43,7 @@ export function createChatHost({context, settings, backend, notice, memory = nul
       // Voice switched off: nobody sends voice messages.
       if (s.general.voiceEnabled === false) for (const p of people) p.voice = false;
       backend.emit('chat', {threadId, typing: true});
-      const recent = story(preset.context);
+      const recent = story(preset);
       // 世界书: scanned over who is in the chat, the recent story and the chat itself, as the story's own request would be.
       const lore = preset.lore === false ? '' : await worldInfoFor(context, {...loreOptions(preset), persona: userPersona(), characters: people.map(p => p.persona || p.card).join('\n'),
         texts: [people.map(p => p.name).join('、'), ...recent.map(r => `${r.name}: ${r.text}`), ...thread.messages.slice(-preset.history).map(m => messageLine(m, user))]});

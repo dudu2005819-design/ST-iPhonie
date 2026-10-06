@@ -10,7 +10,8 @@ import {callSummary} from './call.js';
 import {languageName} from './languages.js';
 import {normalizeMemory} from './memory.js';
 
-export const CHAT_LIMITS = Object.freeze({contacts: 200, persona: 4000, story: 40, history: 200});
+// loreMax, storyEach, storyTotal: characters (0: no limit of the phone's own; the tavern's World Info budget still applies).
+export const CHAT_LIMITS = Object.freeze({contacts: 200, persona: 4000, story: 100, history: 500, chars: 2_000_000});
 
 // Where a rule is used: private chats, group chats, 朋友圈 (posts, likes and comments), 电话 (voice calls).
 export const RULE_USES = Object.freeze(['dm', 'group', 'moments', 'call', 'forum', 'peek']);
@@ -41,7 +42,7 @@ const DEFAULT_INJECTION = {position: 'in_chat', depth: 1, role: 'system'};
 // rev 6 (0.6.45): 论坛 and 查手机; presets made earlier get 论坛口吻 and TA 的手机 once.
 const PRESET_REV = 6;
 const OLD_RULES = Object.freeze({style: '你在一个手机聊天软件里，以联系人本人的身份回复{{用户}}。像真的在发手机消息：口语、简短，一次发一到三条，每条一两句话。可以用语气词和颜文字，不写动作、旁白和心理描写，不加引号。', group: '群聊里每次由一到三位成员接话，谁接话看话题和各自性格，成员之间也可以互相回应、吐槽。', 'c-style': '你在和{{用户}}打语音电话，说的每一句都会被念出来。像真人打电话一样说话：口语、句子短，一次说一到三句；会接话、会反问，会有停顿和语气词。身边发生的小事用说的话带出来（比如「等一下，我这边有点吵」），不写动作、旁白、心理描写和表情符号。守住人设和你们的关系，最近的剧情和聊天可以自然提起。'});
-const DEFAULT_PRESET = {id: 'default', name: '日常短信', rev: PRESET_REV, context: 6, history: 30, posts: 2, lore: true, loreSkipBooks: [], loreSkipEntries: [], cleanTags: [], bring: DEFAULT_BRING, injection: DEFAULT_INJECTION, entries: DEFAULT_CHAT_ENTRIES.map(e => ({...e, enabled: true}))};
+const DEFAULT_PRESET = {id: 'default', name: '日常短信', rev: PRESET_REV, context: 6, history: 30, storyEach: 4000, storyTotal: 20000, loreMax: 30000, posts: 2, lore: true, loreSkipBooks: [], loreSkipEntries: [], cleanTags: [], bring: DEFAULT_BRING, injection: DEFAULT_INJECTION, entries: DEFAULT_CHAT_ENTRIES.map(e => ({...e, enabled: true}))};
 
 // How voice messages read in the phone: only the voice bar until the user asks for 转文字 (or `auto`),
 // then the translation, the original line, or both.
@@ -99,6 +100,10 @@ export function normalizeChatPreset(p = {}) {
     id: String(p.id || crypto.randomUUID()), name: text(p.name, 60) || '聊天预设', rev: PRESET_REV,
     context: count(p.context, 0, CHAT_LIMITS.story, DEFAULT_PRESET.context),
     history: count(p.history, 2, CHAT_LIMITS.history, DEFAULT_PRESET.history),
+    // How much story and 世界书 a phone request takes, in characters; 0: no limit.
+    storyEach: count(p.storyEach, 0, CHAT_LIMITS.chars, DEFAULT_PRESET.storyEach),
+    storyTotal: count(p.storyTotal, 0, CHAT_LIMITS.chars, DEFAULT_PRESET.storyTotal),
+    loreMax: count(p.loreMax, 0, CHAT_LIMITS.chars, DEFAULT_PRESET.loreMax),
     posts: count(p.posts, 1, 5, DEFAULT_PRESET.posts),
     // 世界书: entries the tavern would turn on are added to chat, call and 朋友圈 requests (host-lore.js).
     lore: p.lore !== false,

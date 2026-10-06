@@ -4,7 +4,7 @@
 // anything (dry run: no activation events, timers left alone), and returns their text for the phone's own prompt.
 import {cleanTagged} from './core/chat.js';
 
-// The most of it a phone request takes: whole entries only (it used to be cut at 12000 characters, mid-entry).
+// The most of it a phone request takes unless the chat preset says (loreMax; 0: none of our own): whole entries only.
 const LORE_MAX = 30000;
 
 /**
@@ -14,7 +14,8 @@ const LORE_MAX = 30000;
  * cleanTags: tags whose blocks are taken out of the text (a status bar the story asks for, which the phone must not copy).
  * Returns '' when the tavern has no World Info for this (or is older than 1.12.14).
  */
-export async function worldInfoFor(context, {texts = [], persona = '', characters = '', skipBooks = [], skipEntries = [], cleanTags = [], load = () => import('/scripts/world-info.js')} = {}) {
+export async function worldInfoFor(context, {texts = [], persona = '', characters = '', skipBooks = [], skipEntries = [], cleanTags = [], max: most = LORE_MAX, load = () => import('/scripts/world-info.js')} = {}) {
+  const limit = most || Infinity;
   const ctx = context();
   if (typeof ctx?.getWorldInfoPrompt !== 'function') return '';
   try {
@@ -43,7 +44,7 @@ export async function worldInfoFor(context, {texts = [], persona = '', character
       if (!text || seen.has(text)) continue;
       seen.add(text);
       // One entry too long for what is left is skipped; shorter ones after it may still fit.
-      if (used + text.length > LORE_MAX) { if (!out.length) { out.push(text.slice(0, LORE_MAX)); used = LORE_MAX; } continue; }
+      if (used + text.length > limit) { if (!out.length) { out.push(text.slice(0, limit)); used = limit; } continue; }
       out.push(text); used += text.length + 2;
     }
     return out.join('\n\n');
@@ -83,4 +84,4 @@ export async function loreBooks(context, load = () => import('/scripts/world-inf
 }
 
 /** The 世界书 options of a chat preset, for worldInfoFor. */
-export const loreOptions = preset => ({skipBooks: preset.loreSkipBooks || [], skipEntries: preset.loreSkipEntries || [], cleanTags: preset.cleanTags || []});
+export const loreOptions = preset => ({skipBooks: preset.loreSkipBooks || [], skipEntries: preset.loreSkipEntries || [], cleanTags: preset.cleanTags || [], max: preset.loreMax ?? LORE_MAX});
