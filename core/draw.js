@@ -619,9 +619,14 @@ export function sentenceCount(settings) {
 }
 function sentenceRule(settings) {
   const n = sentenceCount(settings);
-  if (!n) return [];
+  // Whatever the model: the point of the picture has to be in the shot.
+  const seen = '想法里最要紧的东西必须在镜头里看得见：选能拍到它的角度和景别（比如要看到伞里面，就从下往上拍：from below, looking up；要看到手里的东西，就别用远景），视线和动作也别和它冲突。';
+  // V4 / V4.5 read sentences poorly: where things are has to be said with things it knows.
+  const concrete = '这个模型读句子的能力弱，空间关系尽量用具体的 tag 说出来：透明的东西（transparent umbrella）、印花和图案（cloud print）、倒影（reflection）、透出来或照进来的光（light through …），而不是只靠那一句英文。';
+  if (!n) return [seen];
   return [`tag 写全之后，可以在这一行最后补${n > 1 ? '两三句' : '一句'}简短的英文描述句（这个模型读得懂英文句子${n > 1 ? '' : '，但上限只有 512 token，句子很占地方，所以只补一句'}），只写 tag 说不清的东西：位置和空间关系（什么在什么里面、谁在哪一边）、明暗和冷暖的对比、几样东西之间的关系。比如 Inside the umbrella there is a clear blue sky with sunlight, while outside it is a dark heavy storm.`,
-    '描述句的规矩：tag 是主体，句子只补充不代替；不写人名，用 the girl、the boy、the woman、the man 这类；不写比喻（不用 like、as if、resembling 这类词）；不写画不出来的抽象词（孤独、温柔、命运这类），每句只写看得见的东西。'];
+    '描述句的规矩：tag 是主体，句子只补充不代替；不写人名，用 the girl、the boy、the woman、the man 这类；不写比喻（不用 like、as if、resembling 这类词）；不写画不出来的抽象词（孤独、温柔、命运这类），每句只写看得见的东西。',
+    seen, ...(n === 1 ? [concrete] : [])];
 }
 function peopleRules(settings, cast = []) {
   const known = drawable(settings).map(r => r.name).filter(n => !cast.some(c => sameName(c, n)));

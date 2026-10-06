@@ -25,7 +25,7 @@ const context=()=>globalThis.SillyTavern?.getContext();
 // Generation interceptor (manifest generate_interceptor): picture blocks and voice tags stay in the chat but are left
 // out of the messages sent to the model, so they cost no tokens and users need no regex. The newest voiced reply keeps
 // its tags while voice is on, as an example of the format. Replaced, never mutated.
-globalThis.stIphonieInterceptor=function(chat){if(!active)return;let list=[];try{list=formats();}catch{}outgoingChat(chat,{pictures:settings?.draw?.strip!==false,voice:settings?.general?.stripVoice!==false,keepLatest:voiceOn(),formats:list});};
+globalThis.stIphonieInterceptor=function(chat){if(!active)return;let list=[];try{list=formats();}catch{}outgoingChat(chat,{pictures:settings?.draw?.strip!==false,voice:settings?.general?.stripVoice!==false,keepLatest:voiceOn()&&settings?.general?.voiceExample===true,formats:list});};
 // A call while the phone is closed: a note that stays until answered, and a tap on it opens the phone on the call.
 function ringing(name){if(panel?.open)return;remember(name+' 来电');const open=()=>openPanel();if(globalThis.toastr)globalThis.toastr.info('点这里打开小手机接听',`📞 ${name} 来电`,{timeOut:settings?.calls?.ring*1000||30000,extendedTimeOut:0,tapToDismiss:true,onclick:open});else console.info('[ST-iPhonie]',name+' 来电');}
 // The tavern's own avatars, for the phone: each character card's picture by name, and the current persona's.
