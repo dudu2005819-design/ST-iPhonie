@@ -274,7 +274,7 @@ export function enginesApp(ctx) {
   }
   function renderList() {
     delete v.root.dataset.engine;
-    v.draw(heading('引擎', help('卡片分三个卡包：图像（绘图用的 NovelAI、GPT 生图、ComfyUI，绘图 App 里选用哪个画）、语音（Fish Audio、MiniMax、ElevenLabs、小米 MiMo）、文字（写手机里的字的文字模型，和给聊天记忆找旧聊天的向量模型）。点一张卡片把它抽到这个卡包的最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), 'Wallet · 05')
+    v.draw(heading('引擎', help('卡片分三个卡包：图像（绘图用的 NovelAI、GPT 生图、ComfyUI，绘图 App 里选用哪个画）、语音（Fish Audio、MiniMax、ElevenLabs、小米 MiMo）、文字（写手机里的字的文字模型，和给聊天记忆找旧聊天的向量模型）。点一张卡片把它抽到这个卡包的最前面，再点一下打开，查看连接和全部参数。ElevenLabs 和 Fish 的卡片上显示剩余额度。\n卡片只显示密钥是否保存，不显示内容；“已保存”不代表鉴权成功。'), `Wallet · ${String(GROUPS.reduce((n, g) => n + g.ids.length, 0)).padStart(2, '0')}`)
       + GROUPS.map(g => {
         const [note, count] = pocketNote(g), stack = g.ids.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
         return `<section class="card-pocket" data-pocket="${g.id}" data-engine="${stack.at(-1)}" aria-label="${g.title}卡包">

@@ -1,5 +1,6 @@
 import {createView, esc, engines, btn, field, input, select, textArea, heading, help, groupTitle, plate, avatar, languageField, languageName, typedLanguages, toggle} from './common.js';
-import {VOICE_GENDERS, VOICE_AGES, poolLine} from '../core/auto-voice.js';
+import {VOICE_GENDERS, VOICE_AGES, poolLine, readPoolFile, poolFile} from '../core/auto-voice.js';
+import {saveFile} from '../download.js';
 import {icon, halo} from './icons.js';
 
 function barcode(seed) {
@@ -98,8 +99,32 @@ export function rolesApp(ctx) {
     const draw = () => { const pool = api.getState().voicePool || []; return pool.length
       ? `<div class="group">${pool.map((v, i) => `<div class="list-row" data-engine="${v.engine}"><span>${plate(engines[v.engine])}</span><span style="flex:1;min-width:0"><strong>${esc(v.name)}</strong><small>${esc(poolLine({...v, name: ''}) || '没有标注')}</small></span>${btn('pool-remove', icon('trash'), 'text-button', `data-index="${i}" aria-label="移出候选池"`)}</div>`).join('')}</div>`
       : '<p class="hint">还没有音色。给角色选好音色后，在角色页点「加入候选池」，标上男女、年龄和风格。</p>'; };
-    const d = ctx.dialog('候选音色池', `<p class="help-copy">自动挑音色时先从这里挑，性别和年龄对得上才会选；都对不上才去音色库里搜。</p><div data-pool>${draw()}</div>`);
+    const d = ctx.dialog('候选音色池', `<p class="help-copy">自动挑音色时先从这里挑，性别和年龄对得上才会选；都对不上才去音色库里搜。</p>
+      <div class="actions"><label class="secondary file-button">${icon('import')}导入音色池<input type="file" data-pool-file accept=".json,application/json" aria-label="选择音色池文件"></label>${btn('pool-export', icon('download') + '导出', 'secondary')}</div>
+      <p class="hint">可以导入别人分享的音色池文件（ST-iPhonie 导出的，或 FishDialogue 的音色库 JSON）。文件里没写男女和年龄的，按名字和描述猜（少女、大叔、妈妈……），猜不出就留空，可以导入后再看。</p><div data-pool>${draw()}</div>`);
+    // A pool file adds its voices (those already in the pool stay as they are).
+    d.body.addEventListener('change', e => {
+      if (!e.target.matches('[data-pool-file]')) return;
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      file.text().then(text => {
+        const before = api.getState().voicePool || [], read = readPoolFile(text);
+        const after = api.saveVoicePool([...before, ...read]);
+        d.body.querySelector('[data-pool]').innerHTML = draw();
+        if (!current) render();
+        const added = after.length - before.length;
+        ctx.notify(added ? `导入了 ${added} 个音色${read.length > added ? `（${read.length - added} 个已经在池子里）` : ''}` : '这些音色都已经在池子里了');
+      }).catch(error => ctx.notify(error.message, {error: true}));
+    });
     d.body.addEventListener('click', e => {
+      if (e.target.closest('[data-action=pool-export]')) {
+        e.preventDefault();
+        const pool = api.getState().voicePool || [];
+        if (!pool.length) { ctx.notify('候选池还是空的'); return; }
+        saveFile(ctx.doc, new Blob([poolFile(pool)], {type: 'application/json'}), '候选音色池.json').then(name => ctx.notify('已下载 ' + name)).catch(error => ctx.notify(error.message, {error: true}));
+        return;
+      }
       const b = e.target.closest('[data-action=pool-remove]');
       if (!b) return;
       const pool = [...(api.getState().voicePool || [])];

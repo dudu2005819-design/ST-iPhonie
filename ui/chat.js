@@ -3,7 +3,7 @@ import {icon} from './icons.js';
 import {openImageViewer} from '../image-viewer.js';
 import {saveFile, downloadAction} from '../download.js';
 import {momentsPanel, momentsNew, momentsSeen} from './moments.js';
-import {PROFILE_STATUS, BUBBLES, FRAMES, BACKGROUNDS} from '../core/chat.js';
+import {PROFILE_STATUS, BUBBLES, FRAMES, BACKGROUNDS, parseStickers} from '../core/chat.js';
 import {callSummary} from '../core/call.js';
 import {pendant} from './pendants.js';
 import {memorySheet} from './chat-memory.js';
@@ -40,6 +40,7 @@ function preview(m) {
   switch (m.kind) {
     case 'voice': return `[语音] ${seconds(m)}″`;
     case 'photo': return '[图片]';
+    case 'sticker': return '[表情包]';
     case 'redpacket': return '[红包] ' + (m.text || BLESSING);
     case 'transfer': return '[转账] ¥' + m.amount;
     case 'gift': return '[礼物] ' + (m.gift?.name || '');
@@ -53,7 +54,7 @@ function preview(m) {
   }
 }
 const quotable = m => ['text', 'voice', 'photo', 'location'].includes(m.kind);
-const quoteText = m => m.kind === 'voice' ? m.translation || m.text : m.kind === 'photo' ? '[图片]' + (m.text ? ' ' + m.text : '') : m.kind === 'location' ? '[位置] ' + m.text : m.text;
+const quoteText = m => m.kind === 'voice' ? m.translation || m.text : m.kind === 'photo' ? '[图片]' + (m.text ? ' ' + m.text : '') : m.kind === 'sticker' ? '[表情包] ' + m.text : m.kind === 'location' ? '[位置] ' + m.text : m.text;
 const seconds = m => Math.max(1, Math.min(60, Math.round((m.text || '').length / 5)));
 const lineOf = m => ({role: m.from, emotion: m.emotion || 'calm', text: m.text, translation: m.translation || ''});
 const WAVE_HEIGHTS = [6, 12, 18, 10, 16, 22, 14, 8, 16, 20, 12, 7, 14, 10];
@@ -246,8 +247,10 @@ export function chatApp(ctx) {
     switch (m.kind) {
       case 'voice': return `<button class="voice-msg" data-action="voice" ${mid} data-state="ungenerated" aria-label="播放 ${esc(m.from)} 的语音"><span class="v-ico">${icon('play', true)}</span><span class="v-wave">${WAVE_HEIGHTS.map(h => `<i style="height:${h}px"></i>`).join('')}</span><span class="v-sec">${seconds(m)}″</span></button>${voiceText().auto || transcribed.has(m.id) ? transcriptHTML(m) : ''}`;
       case 'photo': return m.photoId
-        ? `<button class="chat-photo" data-action="photo" ${mid} aria-label="查看照片"><img data-chat-photo="${esc(m.photoId)}" alt="${esc(m.text || '照片')}"></button>${m.text ? `<span class="v-text">${esc(m.text)}</span>` : ''}`
+        ? `<button class="chat-photo" data-action="photo" ${mid} aria-label="查看照片"><img data-chat-photo="${esc(m.photoId)}" alt="${esc(m.text || '照片')}"></button>`
         : `<button class="chat-photo described" data-action="message" ${mid}><span class="ph-art">${icon('image')}</span><span class="ph-cap">${esc(m.text)}</span></button>${photoNote(m)}`;
+      // A sticker: the picture without a bubble; its name when the picture cannot be loaded.
+      case 'sticker': return `<button class="chat-sticker" data-action="sticker" ${mid} aria-label="表情包：${esc(m.text)}" data-name="[${esc(m.text)}]">${m.url ? `<img src="${esc(m.url)}" alt="${esc(m.text)}" loading="lazy" referrerpolicy="no-referrer" draggable="false">` : ''}</button>`;
       case 'redpacket': {
         const opened = m.state === 'opened';
         return `<button class="packet${opened ? ' done' : ''}" data-action="packet" ${mid}><span class="pk-main"><span class="pk-ico" aria-hidden="true"></span><span class="pk-text"><strong>${esc(m.text || BLESSING)}</strong>${opened ? `<small>${m.openedBy === 'me' ? '你已领取' : esc(you(m.openedBy)) + ' 已领取'}</small>` : ''}</span></span><span class="pk-foot">红包</span></button>`;
@@ -304,7 +307,15 @@ export function chatApp(ctx) {
     const group = thread.type === 'group';
     const tools = [['photo', 'image', '照片'], ['emoji', 'smile', '表情'], ['redpacket', 'packet', '红包'], ...(group ? [] : [['transfer', 'swap', '转账'], ['gift', 'gift', '礼物']]),
       ['location', 'pin', '位置'], ['pat', 'hand', '拍一拍'], ['dice', 'dice', '骰子']];
-    if (panel === 'emoji') return `<div class="chat-panel emoji-panel" role="group" aria-label="表情">
+    const tabs = `<div class="emoji-tabs" role="tablist">${[['emoji', '表情'], ['stickers', '表情包']].map(([k, t]) => `<button type="button" role="tab" data-action="panel-${k}" aria-selected="${panel === k}">${t}</button>`).join('')}</div>`;
+    if (panel === 'stickers') {
+      const list = api.getState().chat.stickers || [];
+      return `<div class="chat-panel emoji-panel" role="group" aria-label="表情包">${tabs}
+        ${list.length ? `<div class="sticker-grid">${list.slice().reverse().map(s => `<button type="button" class="sticker-cell" data-action="sticker-send" data-name="${esc(s.name)}" aria-label="发表情包：${esc(s.name)}" title="${esc(s.name)}"><img src="${esc(s.url)}" alt="" loading="lazy" referrerpolicy="no-referrer" draggable="false"><small>${esc(s.name)}</small></button>`).join('')}</div>`
+          : '<p class="hint sticker-empty">还没有表情包。点「管理」，粘贴「名字+图片网址」就能导入一批；对方也会从里面挑着发。</p>'}
+        <div class="panel-foot">${btn('panel-tools', icon('back') + '更多功能', 'text-button')}${btn('stickers-manage', icon('sliders') + '管理', 'text-button')}</div></div>`;
+    }
+    if (panel === 'emoji') return `<div class="chat-panel emoji-panel" role="group" aria-label="表情">${tabs}
       <div class="emoji-grid">${EMOJI.map(e => `<button data-action="emoji-pick" data-emoji="${e}" aria-label="${e}">${e}</button>`).join('')}</div>
       <div class="kao-row">${KAOMOJI.map(e => `<button data-action="emoji-pick" data-emoji="${esc(e)}">${esc(e)}</button>`).join('')}</div>
       <div class="panel-foot">${btn('panel-tools', icon('back') + '更多功能', 'text-button')}${btn('emoji-del', icon('backspace'), 'round-button', 'aria-label="删除一个字"')}</div></div>`;
@@ -550,6 +561,47 @@ export function chatApp(ctx) {
     });
   }
   const rollDice = () => post([{from: 'me', kind: 'dice', text: String(1 + Math.floor(Math.random() * 6))}]);
+  // ---------- 表情包 ----------
+  /** Import (「名字URL, 名字URL」), look through, remove; the same text copies them out to share. */
+  function manageStickers() {
+    const list = () => api.getState().chat.stickers || [];
+    const rows = () => list().length ? `<div class="sticker-manage">${list().slice().reverse().map(s => `<div class="sticker-row"><img src="${esc(s.url)}" alt="" loading="lazy" referrerpolicy="no-referrer"><span><strong>${esc(s.name)}</strong><small>${esc(s.url)}</small></span>${btn('sticker-remove', icon('trash'), 'text-button', `data-name="${esc(s.name)}" aria-label="删除 ${esc(s.name)}"`)}</div>`).join('')}</div>` : '<p class="hint">还没有表情包。</p>';
+    const d = ctx.dialog('表情包', `<p class="help-copy">粘贴「名字+图片网址」，一个一行或用逗号隔开，比如：<br><code>开心https://…/a.gif, 委屈https://…/b.png</code><br>名字中间别有空格；同名的会换成新的。对方也会按名字从里面挑着发。</p>
+      ${field('导入', textArea('sticker-text', '', 'rows="4" placeholder="开心https://example.com/happy.gif, 生气https://example.com/angry.png"'))}
+      <div class="actions">${btn('sticker-import', icon('import') + '导入', 'primary')}${btn('sticker-copy', icon('copy') + '复制全部', 'secondary')}</div>
+      ${groupTitle('已有', `<small data-sticker-count>${list().length}</small>`)}<div data-sticker-list>${rows()}</div>
+      <div class="actions">${btn('sticker-clear', icon('trash') + '清空表情包', 'danger')}</div>`);
+    const redraw = () => { d.body.querySelector('[data-sticker-list]').innerHTML = rows(); d.body.querySelector('[data-sticker-count]').textContent = list().length; if (panel === 'stickers') syncPanel(); };
+    d.body.addEventListener('click', e => {
+      const b = e.target.closest('[data-action]');
+      if (!b) return;
+      e.preventDefault();
+      (async () => {
+        switch (b.dataset.action) {
+          case 'sticker-import': {
+            const box = d.body.querySelector('[data-field=sticker-text]'), found = parseStickers(box.value);
+            if (!found.length) throw Error('没认出表情包：要写成「名字」紧跟「http 开头的图片网址」');
+            const before = new Set(list().map(s => s.name));
+            api.saveChatOptions({stickers: [...list(), ...found]});
+            const fresh = found.filter(s => !before.has(s.name)).length;
+            box.value = ''; redraw();
+            ctx.notify(`导入了 ${found.length} 个表情包${found.length - fresh ? `（${found.length - fresh} 个同名的换成了新的）` : ''}`);
+            break;
+          }
+          case 'sticker-copy': {
+            if (!list().length) { ctx.notify('还没有表情包'); break; }
+            await copyText(ctx.win, list().map(s => s.name + s.url).join(',\n'));
+            ctx.notify('已复制，可以发给别人导入');
+            break;
+          }
+          case 'sticker-remove': api.saveChatOptions({stickers: list().filter(s => s.name !== b.dataset.name)}); redraw(); break;
+          case 'sticker-clear':
+            if (!list().length || !await ctx.confirm('清空表情包？', `${list().length} 个表情包都会删除（聊天里发过的还在）。`)) break;
+            api.saveChatOptions({stickers: []}); redraw(); break;
+        }
+      })().catch(error => ctx.notify(error.message, {error: true}));
+    });
+  }
   function insertText(text) {
     const el = v.root.querySelector('[data-field=draft]');
     if (!el) return;
@@ -1009,6 +1061,8 @@ export function chatApp(ctx) {
     const m = thread?.messages.find(x => x.id === el.dataset.mid);
     if (m) { e.preventDefault(); messageMenu(m); }
   });
+  // A sticker whose picture cannot be loaded (a dead link, a site that refuses) shows its name instead.
+  v.root.addEventListener('error', e => { if (e.target.tagName === 'IMG') e.target.closest?.('.chat-sticker, .sticker-cell')?.classList.add('broken'); }, true);
   v.on('click', '[data-action]', async el => {
     const action = el.dataset.action;
     if (mode === 'list' && tab === 'moments' && await moments.click(el)) return;
@@ -1061,7 +1115,20 @@ export function chatApp(ctx) {
       case 'send': await send(); break;
       case 'panel': panel = panel ? null : 'tools'; syncPanel(); break;
       case 'panel-tools': panel = 'tools'; syncPanel(); break;
-      case 'tool-emoji': panel = 'emoji'; syncPanel(); break;
+      case 'tool-emoji': case 'panel-emoji': panel = 'emoji'; syncPanel(); break;
+      case 'panel-stickers': panel = 'stickers'; syncPanel(); break;
+      case 'sticker-send': {
+        const s = (api.getState().chat.stickers || []).find(x => x.name === el.dataset.name);
+        if (s) await post([{from: 'me', kind: 'sticker', text: s.name, url: s.url}]);
+        break;
+      }
+      case 'stickers-manage': manageStickers(); break;
+      case 'sticker': {
+        const m = find(), img = el.querySelector('img');
+        if (!m || !img?.src || el.classList.contains('broken')) { if (m) messageMenu(m); break; }
+        openImageViewer({doc: ctx.doc, src: img.src, alt: m.text, from: img, caption: m.text, actions: [{label: '消息选项', run: () => messageMenu(m)}]});
+        break;
+      }
       case 'emoji-pick': insertText(el.dataset.emoji); break;
       case 'emoji-del': deleteChar(); break;
       case 'tool-photo': panel = null; syncPanel(); await sendPhoto(); break;
@@ -1083,7 +1150,8 @@ export function chatApp(ctx) {
       case 'photo': {
         const m = find(), img = el.querySelector('img');
         if (!m || !img?.src) break;
-        openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, actions: [downloadAction(ctx.doc, () => ({source: img.src, name: `${m.from === 'me' ? '我' : m.from} 的照片`}), ctx.notify), {label: '消息选项', run: () => messageMenu(m)}]});
+        // What the photo shows (the words it was drawn from) is told only once it is opened.
+        openImageViewer({doc: ctx.doc, src: img.src, alt: img.alt, from: img, caption: m.text || '', actions: [downloadAction(ctx.doc, () => ({source: img.src, name: `${m.from === 'me' ? '我' : m.from} 的照片`}), ctx.notify), {label: '消息选项', run: () => messageMenu(m)}]});
         break;
       }
       case 'packet': { const m = find(); if (m) openPacket(m); break; }

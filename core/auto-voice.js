@@ -23,6 +23,41 @@ export function normalizePool(list) {
   }
   return out;
 }
+// ---------- 音色池文件 ----------
+const LANGUAGE_WORDS = {zh: '中文', ja: '日语', en: '英语', ko: '韩语', yue: '粤语', fr: '法语', de: '德语', es: '西班牙语', ru: '俄语'};
+/** Gender and age guessed from the words that describe a voice (少女、大叔、妈妈…); '' when they do not say or disagree. */
+export function guessVoice(words) {
+  const t = String(words ?? '').toLowerCase(), either = t.replace(/少年少女|男女|男声女声/g, '');
+  const female = /女|妇|妹|姐|妈|母|娘|萝莉|阿姨|奶奶|婆|girl|female|woman|lady/.test(either), male = /男|叔|爷|爸|父|哥|弟|正太|少年|boy|\bmale|\bman\b|guy/.test(either);
+  const age = /萝莉|正太|小孩|孩子|儿童|幼|child|kid/.test(t) ? 'child' : /奶奶|爷爷|老人|老年|老爷|婆婆|elder|old/.test(t) ? 'old'
+    : /少女|少年|妹|青梅|学生|元气|萌|teen|young/.test(t) ? 'young' : /大叔|叔|妈|母亲|父亲|爸|少妇|成熟|御姐|阿姨|男性|女性|adult|mature/.test(t) ? 'adult' : '';
+  return {gender: female === male ? '' : female ? 'female' : 'male', age};
+}
+/**
+ * A voice pool file as pool entries: ST-iPhonie's own (st-iphonie-voice-pool), FishDialogue's voice library
+ * (fish_dialogue_voice_library: Fish voices {id, name, category: language, sub: style, desc}), or a plain list.
+ * Gender and age that the file does not give are guessed from its words.
+ */
+export function readPoolFile(source) {
+  let data;
+  try { data = typeof source === 'string' ? JSON.parse(source.replace(/^﻿/, '')) : source; } catch { throw Error('读不懂这个文件：要是 JSON 格式的音色池'); }
+  const list = Array.isArray(data) ? data : Array.isArray(data?.voices) ? data.voices : Array.isArray(data?.pool) ? data.pool : null;
+  if (!list) throw Error('这个文件里没有音色列表');
+  const fish = data?.type === 'fish_dialogue_voice_library';
+  const out = normalizePool(list.map(v => {
+    if (!v || typeof v !== 'object') return null;
+    const engine = ENGINES.includes(v.engine) ? v.engine : fish || !v.engine ? 'fish' : '';
+    const language = LANGUAGE_WORDS[String(v.category || v.language || '').toLowerCase()] || '';
+    const style = text(v.style, 120) || [v.sub, v.desc && v.desc !== v.name ? v.desc : '', language].map(x => text(x, 60)).filter(Boolean).join(' · ');
+    const guess = guessVoice([v.name, v.sub, v.desc, v.style].join(' '));
+    return {engine, voice: v.voice || v.id || v.reference_id || v.voice_id, model: v.model, name: v.name, gender: VOICE_GENDERS[v.gender] ? v.gender : guess.gender, age: VOICE_AGES[v.age] ? v.age : guess.age, style};
+  }));
+  if (!out.length) throw Error('这个文件里没有能用的音色（要有音色 ID）');
+  return out;
+}
+/** The pool as a file to share. */
+export const poolFile = pool => JSON.stringify({type: 'st-iphonie-voice-pool', version: 1, voices: normalizePool(pool)}, null, 2);
+
 /** A pool entry as one line for the model: name, gender, age, style. */
 export const poolLine = v => [v.name, VOICE_GENDERS[v.gender], VOICE_AGES[v.age], v.style].filter(Boolean).join(' · ');
 

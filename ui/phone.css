@@ -1666,3 +1666,51 @@ button.gift-item[data-short]{opacity:.55}
 .sound-version-head small{color:var(--ink2);font-size:12px;overflow-wrap:anywhere}
 .sound-version-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
 .sound-version-fields input{width:100%;min-width:0;font-size:16px;min-height:42px;padding:8px 12px;color:var(--ink);background:var(--card2);border:1.5px solid var(--line);border-radius:14px}
+
+/* 相册浏览: one photo full screen, black like a phone's album; the bars float over it and fade out on a tap. */
+.album-viewer{position:absolute;inset:0;z-index:55;background:#000;color:#fff;overflow:hidden;animation:fade .2s;user-select:none;-webkit-user-select:none}
+.album-stage{position:absolute;inset:0;overflow:hidden;touch-action:pan-y pinch-zoom}
+.album-track{display:flex;width:300%;height:100%;transform:translateX(-33.3333%);will-change:transform}
+.album-track.settle{transition:transform .28s cubic-bezier(.2,.9,.3,1)}
+.album-slide{flex:0 0 33.3333%;height:100%;margin:0;display:grid;place-items:center;overflow:hidden}
+.album-slide img{display:block;max-width:100%;max-height:100%;object-fit:contain;-webkit-user-drag:none}
+.album-top{position:absolute;top:0;left:0;right:0;z-index:2;display:flex;align-items:center;gap:10px;padding:46px 12px 18px;background:linear-gradient(rgba(0,0,0,.6),transparent);transition:opacity .2s}
+.album-round{width:38px;height:38px;flex-shrink:0;border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(255,255,255,.16)}
+.album-round svg{width:20px;height:20px}
+.album-title{flex:1;min-width:0;display:grid;justify-items:center;gap:1px;text-align:center}
+.album-title b{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums}
+.album-title small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;opacity:.7}
+.album-arrow{position:absolute;top:50%;z-index:2;width:38px;height:38px;margin-top:-19px;border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(0,0,0,.4);transition:opacity .2s}
+.album-arrow svg{width:20px;height:20px}
+.album-arrow.prev{left:8px}.album-arrow.next{right:8px}
+.album-arrow:disabled{opacity:0;pointer-events:none}
+.album-bar{position:absolute;left:0;right:0;bottom:0;z-index:2;display:flex;justify-content:space-around;padding:22px 8px 26px;background:linear-gradient(transparent,rgba(0,0,0,.65));transition:opacity .2s}
+.album-bar button{display:grid;justify-items:center;gap:4px;min-width:64px;color:#fff;font-size:11px;font-weight:700}
+.album-bar button svg{width:22px;height:22px}
+.album-bar button.album-danger{color:#ff9a9a}
+.album-bar button:disabled{opacity:.5}
+.album-viewer[data-chrome=off] .album-top,.album-viewer[data-chrome=off] .album-bar,.album-viewer[data-chrome=off] .album-arrow{opacity:0;pointer-events:none}
+@media (pointer:coarse){.album-arrow{display:none}}
+
+/* 表情包: the panel's two tabs, the grid to send from, a sticker in the chat (no bubble), the manager. */
+.emoji-tabs{display:flex;gap:6px;padding:6px 0 2px}
+.emoji-tabs button{padding:5px 14px;border-radius:999px;font-size:13px;font-weight:800;color:var(--ink2)}
+.emoji-tabs button[aria-selected=true]{color:var(--accent-ink);background:var(--accent-soft)}
+.sticker-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;max-height:190px;overflow-y:auto;padding:8px 0 4px;scrollbar-width:none}
+.sticker-cell{display:grid;justify-items:center;gap:2px;padding:4px;border-radius:12px;min-width:0}
+.sticker-cell:active{background:var(--card2)}
+.sticker-cell img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:8px}
+.sticker-cell small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--ink2)}
+.sticker-cell.broken img{display:none}
+.sticker-cell.broken::before{content:"🖼";display:grid;place-items:center;width:100%;aspect-ratio:1;border-radius:8px;background:var(--card2);opacity:.6}
+.sticker-empty{padding:14px 4px}
+.chat-sticker{display:block;padding:0;background:none;box-shadow:none;border-radius:10px}
+.chat-sticker img{display:block;max-width:120px;max-height:120px;min-width:40px;min-height:40px;object-fit:contain;border-radius:10px}
+.chat-sticker.broken img,.chat-sticker:not(:has(img)) img{display:none}
+.chat-sticker.broken::after,.chat-sticker:not(:has(img))::after{content:attr(data-name);display:block;padding:9px 13px;border-radius:16px;background:var(--card);color:var(--ink2);font-size:14px}
+.sticker-manage{display:grid;gap:2px;max-height:260px;overflow-y:auto}
+.sticker-row{display:flex;align-items:center;gap:10px;padding:6px 0}
+.sticker-row+.sticker-row{border-top:1px solid var(--line)}
+.sticker-row img{width:44px;height:44px;flex-shrink:0;object-fit:contain;border-radius:8px;background:var(--card2)}
+.sticker-row>span{flex:1;min-width:0;display:grid}
+.sticker-row small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink2);font-size:11px}

@@ -154,7 +154,8 @@ export class LocalLibrary {
   identifier(id);return this.#mutate(({rows,put,remove})=>{
    const removed=remove('photos',id),phone=rows.phone.get('preferences');
    if(phone){let changed=false;const next=structuredClone(phone);
-    if(next.wallpaper.kind==='photo'&&next.wallpaper.photoId===id){next.wallpaper=defaults().wallpaper;changed=true;}
+    // The theme's own wallpaper comes back, not always 晴空.
+    if(next.wallpaper.kind==='photo'&&next.wallpaper.photoId===id){next.wallpaper={kind:'builtin',key:PHONE_WALLPAPERS.includes(next.skin)?next.skin:'sky'};changed=true;}
     for(const [app,icon] of Object.entries(next.icons))if(icon.kind==='photo'&&icon.photoId===id){delete next.icons[app];changed=true;}
     if(changed){next.updatedAt=this.#time();put('phone',next);}
    }

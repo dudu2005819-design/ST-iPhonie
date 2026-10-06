@@ -15,7 +15,7 @@
 import {connectionLost, lostError} from './idb.js';
 
 export const CHAT_STORE_LIMITS = Object.freeze({messages: 1000, text: 4000, members: 20});
-const KINDS = ['text', 'voice', 'photo', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall', 'call', 'gift'];
+const KINDS = ['text', 'voice', 'photo', 'sticker', 'system', 'redpacket', 'transfer', 'location', 'pat', 'dice', 'notice', 'recall', 'call', 'gift'];
 const CALL_STATES = ['answered', 'missed', 'declined', 'cancelled'];
 const spoken = (list, max, withFrom) => (Array.isArray(list) ? list : []).slice(-max).filter(l => l && String(l.text || l.translation || '').trim()).map(l => ({...(withFrom ? {from: clip(l.from, 40).trim() || 'me'} : {}), text: clip(l.text || l.translation, 1000), translation: clip(l.translation || l.text, 1000), emotion: clip(l.emotion || 'calm', 100)}));
 const STATES = {redpacket: ['sent', 'opened'], transfer: ['sent', 'accepted', 'returned'], gift: ['sent', 'accepted', 'returned']};
@@ -49,6 +49,8 @@ function cleanMessage(m, id, at) {
     if (m.openedBy) out.openedBy = clip(m.openedBy, 40);
   }
   if (kind === 'location') out.detail = clip(m.detail, 200);
+  // A sticker keeps its address, so it still shows after it leaves the collection.
+  if (kind === 'sticker') { out.text = clip(m.text, 20); out.url = /^https?:\/\//i.test(String(m.url || '')) ? clip(m.url, 2000) : ''; }
   if (kind === 'pat' || kind === 'notice') out.target = clip(m.target, 40).trim() || 'me';
   if (kind === 'dice') out.text = String(Math.min(6, Math.max(1, Math.round(Number(m.text)) || 1)));
   if (kind === 'recall') out.text = '';

@@ -236,7 +236,9 @@ export interface PeekPicture { text: string; tags: string; photoId?: string; sta
 export interface MomentComment { id: string; from: string; to?: string; text: string; at: number; }
 /** author and comment names are 'me' for the user. */
 export interface MomentPost { id: string; author: string; text: string; at: number; source: 'manual' | 'auto' | 'me'; photoId?: string; imageTags?: string; imageState?: 'waiting' | 'done' | 'failed'; imageNote?: string; likes: string[]; comments: MomentComment[]; }
-export interface ChatSettings { presets: ChatPreset[]; activePreset: string; contacts: Contact[]; voiceText: VoiceTextOptions; profile: ChatProfile; /** 特别关心 */ starred: string[];
+/** 表情包: a picture on the web by name (the name is what the model writes). */
+export interface Sticker { name: string; url: string; }
+export interface ChatSettings { /** 表情包 */ stickers?: Sticker[]; presets: ChatPreset[]; activePreset: string; contacts: Contact[]; voiceText: VoiceTextOptions; profile: ChatProfile; /** 特别关心 */ starred: string[];
     /** Avatar choices by name ('me' = the user); names not listed use the tavern's avatar, else the first letter. */
     avatars: Record<string, AvatarChoice>;
     /** One wallet for the whole phone. */
@@ -688,7 +690,7 @@ export interface BackendFacade {
     /** Takes (or returns) what a contact sent: red packet, transfer or gift. Money goes into the wallet, a gift into 收到的礼物. */
     takeSent(threadId: string, messageId: string, accept?: boolean): Promise<ChatThread>;
     shopCatalog(): { premium: Record<'bubble' | 'frame' | 'background', Record<string, [string, number]>>; kinds: Record<string, string>; gifts: ShopGift[]; ledgerKinds: Record<string, string> };
-    saveChatOptions(patch: { pace?: boolean; voiceText?: Partial<VoiceTextOptions>; profile?: Partial<ChatProfile>; starred?: string[]; /** null: back to the tavern's avatar */ avatars?: Record<string, AvatarChoice | null> }): ChatSettings;
+    saveChatOptions(patch: { pace?: boolean; stickers?: Sticker[]; voiceText?: Partial<VoiceTextOptions>; profile?: Partial<ChatProfile>; starred?: string[]; /** null: back to the tavern's avatar */ avatars?: Record<string, AvatarChoice | null> }): ChatSettings;
     saveContact(contact: Partial<Contact> & { name: string }): Contact;
     deleteContact(id: string): ChatSettings;
     /** Story roles (角色 App) first, then manual contacts. */
