@@ -399,7 +399,7 @@ export interface AudioMetadata {
 }
 export interface CachedAudio { key: string; at: number; bytes: number; metadata: AudioMetadata; }
 export interface CacheStats { count: number; bytes: number; available: boolean; }
-export interface LibraryStats { bytes: number; limit: number; notes: number; photos: number; favorites: number; references: number; }
+export interface LibraryStats { bytes: number; limit: number; notes: number; photos: number; favorites: number; references: number; vibes: number; /** Bytes by kind: notes, photos, favorites, references, vibes, phone. */ sizes: Record<string, number>; }
 export type LibraryCollection = 'favorites' | 'cache' | 'photos' | 'notes';
 
 export type BackendEvent =
