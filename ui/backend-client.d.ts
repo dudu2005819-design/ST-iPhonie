@@ -573,9 +573,11 @@ export interface BackendFacade {
     savePhone(patch: PhonePatch): Promise<PhonePreferences>;
     libraryStats(): Promise<LibraryStats>;
     /** Album photos made by drawing (the workbench and in-text pictures). */
-    generatedPhotos(): Promise<{ count: number; bytes: number }>;
+    /** The photos the phone drew, by where: 绘图 App (draw), 正文图片 (chat), 查手机 (peek), 朋友圈 (moments). */
+    generatedPhotos(): Promise<{ count: number; bytes: number; sources: Record<'draw' | 'chat' | 'peek' | 'moments', { label: string; count: number; bytes: number }> }>;
     /** Deletes those photos from the album; returns how many were deleted. Imported photos stay. */
-    deleteGeneratedPhotos(): Promise<number>;
+    /** Deletes the drawn photos of those sources (all when none); what showed them goes back to «not drawn». */
+    deleteGeneratedPhotos(sources?: Array<'draw' | 'chat' | 'peek' | 'moments'>): Promise<number>;
     saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
     /** 朋友圈 options. */
     saveCalls(patch: Partial<CallsSettings>): CallsSettings;

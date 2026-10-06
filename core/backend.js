@@ -55,6 +55,14 @@ const message = error => error instanceof TypeError ? '设置格式无效，请�
 // Audio files are named after who said what: 诺亚 - 午安，格林小姐.
 const audioName = (role, said) => [String(role || '').trim(), String(said || '').replace(/\s+/g, ' ').trim().slice(0, 30)].filter(Boolean).join(' - ') || 'ST-iPhonie 语音';
 
+// Where the phone drew an album photo, by the name it gave it: the drawing app (named after the engine), in-text
+// pictures, 查手机 and 朋友圈. Each name ends in the seed (or the time) and the file type.
+const DRAWN_SOURCES = [
+    ['draw', '绘图 App', /^(?:NovelAI|GPT ?生图|ComfyUI)-\d+\.(?:png|jpe?g|webp)$/],
+    ['chat', '正文图片', /^chat-\d+\.(?:png|jpe?g|webp)$/],
+    ['peek', '查手机', /^查手机-.+-\d+\.(?:png|jpe?g|webp)$/],
+    ['moments', '朋友圈', /^朋友圈-.+-\d+\.(?:png|jpe?g|webp)$/],
+];
 export class TTSBackend {
     constructor({ settings, persist = () => {}, notify = () => {}, change = () => {}, unknown = () => {},
         providers = new Providers(), cache, library, keyStore, sink, novelai, chats, indexedDB = globalThis.indexedDB, syncStorage = () => globalThis.localStorage,
@@ -1346,17 +1354,50 @@ export class TTSBackend {
         if (!lines.length) throw Error('这条语音没有内容');
         return this.player.start(lines.map(l => ({ role: l.role, emotion: l.emotion || 'calm', text: l.text, translation: l.translation || '' })), () => !this.closed);
     }
-    /** Album photos made by the drawing app or in-text pictures (named NovelAI-<seed>.png / chat-<seed>.png). */
+    /**
+     * Album photos the phone drew, by where they were drawn (told apart by the name generateImage gives them):
+     * {count, bytes, ids, sources: {draw|chat|peek|moments: {label, count, bytes, ids}}}. Imported photos are not here.
+     */
     async generatedPhotos() {
-        const rows = (await this.library.listPhotos()).filter(row => /^(?:NovelAI|chat)-\d+\.png$/.test(row.name));
-        return { count: rows.length, bytes: rows.reduce((n, row) => n + (row.size || 0), 0), ids: rows.map(row => row.id) };
+        const rows = await this.library.listPhotos(), sources = {}, all = [];
+        for (const [key, label, pattern] of DRAWN_SOURCES) {
+            const mine = rows.filter(row => pattern.test(row.name || ''));
+            sources[key] = { label, count: mine.length, bytes: mine.reduce((n, row) => n + (row.size || 0), 0), ids: mine.map(row => row.id) };
+            all.push(...mine);
+        }
+        return { count: all.length, bytes: all.reduce((n, row) => n + (row.size || 0), 0), ids: all.map(row => row.id), sources };
     }
-    async deleteGeneratedPhotos() {
-        const { ids } = await this.generatedPhotos();
-        for (const id of ids) await this.library.deletePhoto(id);
+    /**
+     * Deletes the drawn photos of the given sources (all when none are given). Whatever showed them lets go: a 朋友圈
+     * post's picture and a 查手机 photo go back to «not drawn» (they can be drawn again), an avatar or a chat background
+     * that used one goes back to the default.
+     */
+    async deleteGeneratedPhotos(sources = null) {
+        const found = await this.generatedPhotos();
+        const keys = Array.isArray(sources) && sources.length ? sources.filter(k => found.sources[k]) : Object.keys(found.sources);
+        const gone = new Set(keys.flatMap(k => found.sources[k].ids));
+        for (const id of gone) await this.library.deletePhoto(id);
+        if (gone.size) await this.#forgetPhotos(gone);
         this.emit('library', { collection: 'photos' });
         this.emit('phone', { preferences: await this.getPhone() });
-        return ids.length;
+        return gone.size;
+    }
+    async #forgetPhotos(gone) {
+        let posts = 0;
+        for (const post of await this.moments.list()) {
+            if (!gone.has(post.photoId)) continue;
+            await this.moments.setImage(post.id, post.imageTags ? { photoId: '', imageState: 'failed', imageNote: '配图已清理' } : { photoId: '' });
+            posts++;
+        }
+        if (posts) this.emit('moments', {});
+        const snaps = (await this.apps.list('peek')).filter(doc => [...(doc.photos || []), doc.wallpaper].some(p => p && gone.has(p.photoId)));
+        const strip = p => { if (!p || !gone.has(p.photoId)) return p; const { photoId, state, note, ...rest } = p; return rest; };
+        if (snaps.length) await this.appsMutate('peek', () => this.apps.put(snaps.map(doc => ({ ...doc, photos: (doc.photos || []).map(strip), ...(doc.wallpaper ? { wallpaper: strip(doc.wallpaper) } : {}) }))));
+        const next = this.getState(), avatars = { ...next.chat.avatars };
+        let changed = false;
+        for (const [key, a] of Object.entries(avatars)) if (a.kind === 'photo' && gone.has(a.photoId)) { delete avatars[key]; changed = true; }
+        if (gone.has(next.chat.profile.backgroundPhoto)) { next.chat.profile = { ...next.chat.profile, backgroundPhoto: '' }; changed = true; }
+        if (changed) { next.chat.avatars = avatars; this.save(next); }
     }
     /** The shared cloud queue from the drawing settings, or null when it is off or incomplete. */
     cloudQueue() {
@@ -1545,7 +1586,7 @@ export class TTSBackend {
             getPhoto: id => this.library.getPhoto(id), deletePhoto: id => this.mutateLibrary('photos', 'deletePhoto', id),
             listNotes: () => this.library.listNotes(), saveNote: value => this.mutateLibrary('notes', 'saveNote', value), deleteNote: id => this.mutateLibrary('notes', 'deleteNote', id),
             getPhone: () => this.getPhone(), savePhone: patch => this.savePhone(patch), libraryStats: () => this.library.stats(),
-            generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
+            generatedPhotos: () => this.generatedPhotos().then(({ count, bytes, sources }) => ({ count, bytes, sources: Object.fromEntries(Object.entries(sources).map(([k, { ids, ...rest }]) => [k, rest])) })), deleteGeneratedPhotos: sources => this.deleteGeneratedPhotos(sources),
             saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
             saveText: patch => this.saveText(clone(patch)), setTextKey: (id, key) => this.setTextKey(id, key), clearTextKey: id => this.clearTextKey(id), textKeyHint: id => this.textKeyHint(id), textModels: draft => this.textModels(clone(draft || {})),
             syncStatus: () => this.syncStatus(), saveSync: patch => this.saveSync(clone(patch)), syncNow: () => this.syncNow().then(() => this.syncStatus()), clearSyncFiles: () => this.clearSyncFiles(),

@@ -82,6 +82,24 @@ export function settingsApp(ctx) {
     try { const n = await api.clearSyncFiles(); ctx.notify(n ? '酒馆里的那份已删除' : '酒馆里没有存过'); } catch (error) { ctx.notify(error.message, {error: true}); }
     await render();
   }
+  /** 清除相册里的绘图: pick which of the drawn photos go (all ticked), with how many and how big each is. */
+  async function clearDrawn() {
+    const drawn = await api.generatedPhotos();
+    const rows = Object.entries(drawn.sources).filter(([, x]) => x.count);
+    if (!rows.length) { ctx.notify('相册里没有画出来的图'); return; }
+    const d = ctx.dialog('清除相册里的绘图', `<p class="help-copy">勾上要清的。自己导入的照片不会动；正文里的图片存在酒馆，不受影响。清掉的朋友圈配图和查手机照片会变回「没画」，想要可以再画。</p>
+      <div class="group">${rows.map(([key, x]) => `<label class="setting-row"><span>${esc(x.label)}<small> · ${x.count} 张 · ${size(x.bytes)}</small></span><input type="checkbox" data-drawn="${key}" checked></label>`).join('')}</div>
+      <div class="actions">${btn('drawn-go', icon('trash') + '清除', 'danger')}</div>`);
+    d.body.addEventListener('click', async e => {
+      const go = e.target.closest('[data-action=drawn-go]');
+      if (!go) return;
+      const keys = [...d.body.querySelectorAll('[data-drawn]:checked')].map(x => x.dataset.drawn);
+      if (!keys.length) { ctx.notify('先勾上要清的'); return; }
+      go.disabled = true;
+      try { const n = await api.deleteGeneratedPhotos(keys); d.close(); await render(); ctx.notify(`已清除 ${n} 张`); }
+      catch (error) { go.disabled = false; ctx.notify(error.message, {error: true}); }
+    });
+  }
   v.onSync = () => { if (!appearance && !check && !backup && !restore) render().catch(() => {}); };
 
   async function runCheck() {
@@ -146,7 +164,7 @@ export function settingsApp(ctx) {
           <div class="setting-row"><span>本地资料</span><small>${library ? size(library.bytes) + ' / ' + size(library.limit) : '无法读取'}</small></div>
           <div class="setting-row"><span>相册里的绘图</span><small>${drawn ? drawn.count + ' 张 · ' + size(drawn.bytes) : '无法读取'}</small></div>
           ${chatPictures ? `<div class="setting-row"><span>当前聊天的正文图片</span><small>${chatPictures.count} 张 · 存在酒馆</small></div>` : ''}</div>
-        <details class="tool-fold" data-group="storage-clear"><summary>${icon('trash')}清理<small>语音缓存 · 相册里的绘图 · 正文图片</small></summary><div>
+        <details class="tool-fold" data-group="storage-clear"><summary>${icon('trash')}清理<small>语音缓存 · 相册里的绘图（绘图 App、正文、查手机、朋友圈）· 正文图片</small></summary><div>
           <div class="actions" style="margin-top:0">${btn('clear-cache', icon('trash') + '清理语音缓存', 'danger')}${btn('clear-drawn', icon('trash') + '清除相册里的绘图', 'danger', drawn?.count ? '' : 'disabled')}${chatPictures ? btn('clear-chat-pictures', icon('trash') + '清除正文图片', 'danger', chatPictures.count ? '' : 'disabled') : ''}</div></div></details>
         ${syncGroup()}
         ${groupTitle('备份与恢复')}<div class="group"><button class="list-row" data-action="backup"><span><strong>备份到文件</strong><small>设置、角色音色、聊天记录、相册和收藏存成一个文件，换设备或误删时能找回</small></span>${icon('next')}</button><label class="list-row file-button"><span><strong>从文件恢复</strong><small>选一个 ST-iPhonie 备份文件</small></span>${icon('next')}<input type="file" data-backup-file accept=".json,application/json" aria-label="选择备份文件"></label></div>
@@ -281,7 +299,7 @@ export function settingsApp(ctx) {
         break;
       }
       case 'clear-drawn':
-        if (await ctx.confirm('清除相册里的绘图？', '绘图 App 和正文出图存进相册的图片会被删除，自己导入的照片保留。正文里的图片不受影响。')) { const n = await v.busy(el, () => api.deleteGeneratedPhotos()); await render(); ctx.notify(`已清除 ${n} 张`); }
+        await clearDrawn();
         break;
       case 'clear-chat-pictures':
         if (await ctx.confirm('清除当前聊天的正文图片？', '图片文件会从酒馆删除，出图标签还在，之后可以点“点击生成”重新画。相册里的副本不受影响。')) { const r = await v.busy(el, () => api.clearChatPictures()); await render(); ctx.notify(`已清除 ${r.count} 张` + (r.failed ? `，${r.failed} 张没删掉` : '')); }
