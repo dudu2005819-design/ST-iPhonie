@@ -81,6 +81,7 @@ const DRAWN_SOURCES = [
     ['chat', '正文图片', /^chat-\d+\.(?:png|jpe?g|webp)$/],
     ['peek', '查手机', /^查手机-.+-\d+\.(?:png|jpe?g|webp)$/],
     ['moments', '朋友圈', /^朋友圈-.+-\d+\.(?:png|jpe?g|webp)$/],
+    ['chatapp', '聊天图片', /^聊天-.+-\d+\.(?:png|jpe?g|webp)$/],
 ];
 export class TTSBackend {
     constructor({ settings, persist = () => {}, notify = () => {}, change = () => {}, unknown = () => {},
@@ -1437,6 +1438,13 @@ export class TTSBackend {
             posts++;
         }
         if (posts) this.emit('moments', {});
+        // Photos in the phone chats: a drawn one can be drawn again; one of the album goes back to its words.
+        for (const summary of await this.chats.list()) {
+            const thread = await this.chats.get(summary.id);
+            const hit = (thread?.messages || []).filter(m => m.kind === 'photo' && gone.has(m.photoId));
+            for (const m of hit) await this.chats.updateMessage(thread.id, m.id, m.imageTags ? { photoId: '', imageState: 'failed', imageNote: '图片已清理' } : { photoId: '' });
+            if (hit.length) this.emit('chat', { threadId: thread.id });
+        }
         const snaps = (await this.apps.list('peek')).filter(doc => [...(doc.photos || []), doc.wallpaper].some(p => p && gone.has(p.photoId)));
         const strip = p => { if (!p || !gone.has(p.photoId)) return p; const { photoId, state, note, ...rest } = p; return rest; };
         if (snaps.length) await this.appsMutate('peek', () => this.apps.put(snaps.map(doc => ({ ...doc, photos: (doc.photos || []).map(strip), ...(doc.wallpaper ? { wallpaper: strip(doc.wallpaper) } : {}) }))));

@@ -1,7 +1,8 @@
 // Phone chat history, kept in this browser (IndexedDB) and scoped to the tavern account like the other local data.
 // Thread: {id, type:'dm'|'group', name, members:[name], unread, createdAt, updatedAt, messages:[Message]}
 // Message: {id, from:'me'|name, kind, text, at, quote?:{from,text}} plus, by kind:
-//   voice: translation, emotion · photo: photoId? (none when a contact describes a photo in words)
+//   voice: translation, emotion · photo: photoId? (none when a contact describes a photo in words), imageTags? (to draw
+//         it), imageState?: 'waiting'|'done'|'failed', imageNote?
 //   redpacket: amount, state:'sent'|'opened', openedBy? · transfer: amount, state:'sent'|'accepted'|'returned'
 //   location: text = place, detail = address · pat: target (who was patted) · dice: text = 1..6
 //   notice: text = what `from` did, with {对方} standing for `target` · recall: a withdrawn message · system: app notes
@@ -34,6 +35,9 @@ function cleanMessage(m, id, at) {
   const out = {id, from, kind, text: clip(m.text, CHAT_STORE_LIMITS.text), at};
   if (kind === 'voice') { out.translation = clip(m.translation, CHAT_STORE_LIMITS.text); out.emotion = clip(m.emotion, 100); }
   if (kind === 'photo' && m.photoId) out.photoId = clip(m.photoId, 512);
+  if (kind === 'photo' && m.imageTags) out.imageTags = clip(m.imageTags, 600);
+  if (kind === 'photo' && ['waiting', 'done', 'failed'].includes(m.imageState)) out.imageState = m.imageState;
+  if (kind === 'photo' && m.imageNote) out.imageNote = clip(m.imageNote, 200);
   if (kind === 'gift') {
     const g = m.gift && typeof m.gift === 'object' ? m.gift : {};
     out.gift = {name: clip(g.name, 20).trim(), emoji: [...clip(g.emoji, 16).trim()].slice(0, 2).join('') || '🎁', price: Math.max(0, Math.min(99999, Math.round(Number(g.price) * 100) / 100 || 0))};
@@ -186,6 +190,13 @@ export class ChatStore {
       if (patch.recall) {
         for (const key of Object.keys(m)) if (!['id', 'from', 'at'].includes(key)) delete m[key];
         Object.assign(m, {kind: 'recall', text: ''});
+        return;
+      }
+      // A contact's photo: its drawing (photoId '' takes the picture away again).
+      if (m.kind === 'photo' && ['photoId', 'imageState', 'imageNote'].some(k => k in patch)) {
+        if ('photoId' in patch) { if (patch.photoId) m.photoId = clip(patch.photoId, 512); else delete m.photoId; }
+        if ('imageState' in patch) { if (['waiting', 'done', 'failed'].includes(patch.imageState)) m.imageState = patch.imageState; else delete m.imageState; }
+        if ('imageNote' in patch) { if (patch.imageNote) m.imageNote = clip(patch.imageNote, 200); else delete m.imageNote; }
         return;
       }
       if (!STATES[m.kind]) throw fail('这条消息不能修改');

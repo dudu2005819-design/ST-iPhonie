@@ -231,6 +231,7 @@ function connect(source){
   clearChatPictures:()=>{check();return pictures.clearPictures();},
   takeDraw:()=>{check();const value=pendingDraw;pendingDraw=null;return value;},
   chatReply:threadId=>{check();return chats.reply(threadId);},
+  chatDrawPhoto:(threadId,messageId,allowPaid)=>{check();return chats.drawPhoto(threadId,messageId,{allowPaid:allowPaid===true});},
   chatBring:(threadId,ids)=>{check();return chats.bring(threadId,ids);},
   chatPendingBring:()=>{check();return chats.pendingBring();},
   chatCancelBring:()=>{check();chats.cancelBring();},

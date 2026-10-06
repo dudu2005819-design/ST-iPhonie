@@ -591,10 +591,10 @@ export interface BackendFacade {
     libraryStats(): Promise<LibraryStats>;
     /** Album photos made by drawing (the workbench and in-text pictures). */
     /** The photos the phone drew, by where: 绘图 App (draw), 正文图片 (chat), 查手机 (peek), 朋友圈 (moments). */
-    generatedPhotos(): Promise<{ count: number; bytes: number; sources: Record<'draw' | 'chat' | 'peek' | 'moments', { label: string; count: number; bytes: number }> }>;
+    generatedPhotos(): Promise<{ count: number; bytes: number; sources: Record<'draw' | 'chat' | 'peek' | 'moments' | 'chatapp', { label: string; count: number; bytes: number }> }>;
     /** Deletes those photos from the album; returns how many were deleted. Imported photos stay. */
     /** Deletes the drawn photos of those sources (all when none); what showed them goes back to «not drawn». */
-    deleteGeneratedPhotos(sources?: Array<'draw' | 'chat' | 'peek' | 'moments'>): Promise<number>;
+    deleteGeneratedPhotos(sources?: Array<'draw' | 'chat' | 'peek' | 'moments' | 'chatapp'>): Promise<number>;
     saveChatPreset(preset: Partial<ChatPreset> & { name: string }): ChatPreset;
     /** 朋友圈 options. */
     saveCalls(patch: Partial<CallsSettings>): CallsSettings;
@@ -727,6 +727,8 @@ export interface BackendAPI extends BackendFacade {
     takeDraw(): (DrawInput & { tag?: string; seed?: number }) | null;
     /** Generates the contacts' next messages with the tavern's connected model and stores them. */
     chatReply(threadId: string): Promise<ChatThread>;
+    /** Draws a contact's photo from its tags (allowPaid: even when it costs Anlas); resolves to the photo id. */
+    chatDrawPhoto?(threadId: string, messageId: string, allowPaid?: boolean): Promise<string | null>;
     /** Prepares chat messages to be injected once into the next story reply. */
     chatBring(threadId: string, messageIds: string[]): Promise<{ threadId: string; name: string; count: number; text: string }>;
     chatPendingBring(): { threadId: string; name: string; count: number } | null;

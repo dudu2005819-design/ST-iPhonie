@@ -247,7 +247,7 @@ export function chatApp(ctx) {
       case 'voice': return `<button class="voice-msg" data-action="voice" ${mid} data-state="ungenerated" aria-label="播放 ${esc(m.from)} 的语音"><span class="v-ico">${icon('play', true)}</span><span class="v-wave">${WAVE_HEIGHTS.map(h => `<i style="height:${h}px"></i>`).join('')}</span><span class="v-sec">${seconds(m)}″</span></button>${voiceText().auto || transcribed.has(m.id) ? transcriptHTML(m) : ''}`;
       case 'photo': return m.photoId
         ? `<button class="chat-photo" data-action="photo" ${mid} aria-label="查看照片"><img data-chat-photo="${esc(m.photoId)}" alt="${esc(m.text || '照片')}"></button>${m.text ? `<span class="v-text">${esc(m.text)}</span>` : ''}`
-        : `<button class="chat-photo described" data-action="message" ${mid}><span class="ph-art">${icon('image')}</span><span class="ph-cap">${esc(m.text)}</span></button>`;
+        : `<button class="chat-photo described" data-action="message" ${mid}><span class="ph-art">${icon('image')}</span><span class="ph-cap">${esc(m.text)}</span></button>${photoNote(m)}`;
       case 'redpacket': {
         const opened = m.state === 'opened';
         return `<button class="packet${opened ? ' done' : ''}" data-action="packet" ${mid}><span class="pk-main"><span class="pk-ico" aria-hidden="true"></span><span class="pk-text"><strong>${esc(m.text || BLESSING)}</strong>${opened ? `<small>${m.openedBy === 'me' ? '你已领取' : esc(you(m.openedBy)) + ' 已领取'}</small>` : ''}</span></span><span class="pk-foot">红包</span></button>`;
@@ -285,6 +285,13 @@ export function chatApp(ctx) {
   function pickEdges() {
     const ids = thread.messages.filter(m => !LINE_KINDS.includes(m.kind) && selecting?.has(m.id)).map(m => m.id);
     return {first: ids[0], last: ids.at(-1)};
+  }
+  /** Under a contact's described photo: drawing it now, or 画出来 (it was not free, or it failed). */
+  function photoNote(m) {
+    if (!m.imageTags || !api.chatDrawPhoto) return '';
+    if (m.imageState === 'waiting') return '<span class="ph-note">正在画……</span>';
+    if (!api.drawReady?.()) return '';
+    return `<button type="button" class="ph-note ph-draw" data-action="photo-draw" data-mid="${esc(m.id)}">${esc(m.imageState === 'failed' && m.imageNote ? m.imageNote + ' · ' : '')}画出来</button>`;
   }
   function messageHTML(m, i, list) {
     const day = i === 0 || new Date(list[i - 1].at).toDateString() !== new Date(m.at).toDateString() ? `<div class="day">${dayLabel(m.at)}</div>` : '';
@@ -1091,6 +1098,13 @@ export function chatApp(ctx) {
         break;
       }
       case 'thread-menu': threadMenu(); break;
+      case 'photo-draw': {
+        const m = thread.messages.find(x => x.id === el.dataset.mid);
+        const paid = /Anlas|花钱/.test(m?.imageNote || '') || api.drawQuote?.().free === false, ask = api.paidPrompt?.();
+        if (paid && ask && !await ctx.confirm(ask.title, ask.text)) break;
+        api.chatDrawPhoto(threadId, el.dataset.mid, paid).catch(error => ctx.notify(error.message, {error: true}));
+        break;
+      }
       case 'bring': selecting = selecting ? null : new Set(); panel = null; render(); break;
       case 'bring-go': {
         const count = selecting.size;
