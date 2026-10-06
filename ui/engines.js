@@ -400,7 +400,7 @@ export function enginesApp(ctx) {
           ${field('API Key', input('key', '', 'password', `autocomplete="off" placeholder="${saved ? '已保存，填写新密钥可替换' : '这个接口的密钥（本地模型可以不填）'}"`), '密钥只保存在当前浏览器和酒馆地址，不会写进设置或备份。')}
           <div class="key-actions">${btn('save-key', icon('key') + '保存密钥', 'primary')}${btn('reveal-key', '显示', 'secondary')}${btn('clear-key', '清除', 'danger')}</div>
           ${field('模型', input('text-model', t.model, 'text', 'autocomplete="off" placeholder="例如 gpt-4o-mini、deepseek-chat"'))}
-          <div class="actions">${btn('text-models', icon('refresh') + '读取模型列表', 'secondary')}</div>
+          ${/volces\.com|volcengine/i.test(t.url || '') ? '<p class="hint">火山方舟没有模型列表：直接在上面填推理接入点 ID（ep- 开头）或开通了的模型名，在火山方舟控制台的「在线推理」或「开通管理」里能看到。</p>' : `<div class="actions">${btn('text-models', icon('refresh') + '读取模型列表', 'secondary')}</div>`}
           <div class="combo-menu model-list" data-model-list ${models.length ? '' : 'hidden'}>${models.map(m => `<button type="button" class="combo-chip" data-action="text-pick" data-model="${esc(m)}" aria-pressed="${m === t.model}">${esc(m)}</button>`).join('')}</div>
           <p class="hint" data-text-status></p>
           ${field('温度', input('text-temperature', t.temperature, 'number', 'min="0" max="2" step="0.05"'), '越高越随性，越低越稳定。0.7–1 比较常用。')}

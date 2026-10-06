@@ -144,6 +144,11 @@ const thoughtOnly = finish => Error(finish === 'length'
  * asked again (it would be paid twice). A network error in a browser is usually the API refusing web pages (CORS) or a
  * wrong address; the message says so.
  */
+// 火山方舟 (checked 2026-10-06): no list of models (the browser's check for /models gets 404, so it cannot even ask),
+// and its error answers (a wrong key or model) carry no CORS header, so the browser cannot read them either: both look
+// like "cannot connect". Chatting itself is allowed from web pages.
+const ARK = /volces\.com|volcengine/i;
+const ARK_MODEL = '火山方舟没有模型列表：在「模型」里直接填推理接入点 ID（ep- 开头）或模型名（比如 doubao-seed-1-6-250615），在火山方舟控制台的「在线推理」或「开通管理」里能看到';
 export async function customRequest({text, key, prompt, responseLength, fetch: send = globalThis.fetch, signal}) {
   const base = apiBase(text.url), body = chatBody(text, prompt, responseLength);
   const post = async stream => {
@@ -160,6 +165,7 @@ export async function customRequest({text, key, prompt, responseLength, fetch: s
     } catch (error) {
       clearTimeout(timer);
       if (error?.name === 'AbortError' || error?.name === 'TimeoutError') throw Error(TOO_SLOW);
+      if (ARK.test(base)) throw Error('文字模型：火山方舟没有回答。它在密钥不对、模型名不对、没开通这个模型时返回的错误浏览器读不到，看起来就像连不上：请检查密钥，以及「模型」填的是不是推理接入点 ID（ep- 开头）或开通了的模型名');
       throw Error('文字模型：连不上这个接口。可能是地址写错了，或者这个接口不允许网页直接访问（CORS）');
     }
     /** Reads the answer while the timer keeps watch; clears it whatever happens. */
@@ -212,14 +218,14 @@ export async function listModels({text, key, fetch: send = globalThis.fetch}) {
   const base = apiBase(text.url);
   let response;
   // Some APIs (火山方舟 among them) have no list of models: the model is written by hand then.
-  const byHand = /volces\.com|volcengine/i.test(base)
-    ? '火山方舟的接口读不出模型列表：在「模型」里直接填模型名（比如 doubao-seed-1-6-250615、deepseek-v3-250324）或推理接入点 ID（ep- 开头），在火山方舟控制台的「在线推理」或「开通管理」里能看到'
-    : '这个接口读不出模型列表：在「模型」里直接填模型名就行（接口的文档或控制台里能找到）';
+  // 火山方舟 has none to read: said at once, without asking.
+  if (ARK.test(base)) throw Error('文字模型：' + ARK_MODEL);
+  const byHand = '这个接口读不出模型列表：在「模型」里直接填模型名就行（接口的文档或控制台里能找到）';
   try { response = await send(base + '/models', {headers: key ? {Authorization: 'Bearer ' + key} : {}}); }
   catch { throw Error('文字模型：连不上这个接口。可能是地址写错了，或者这个接口不允许网页直接访问（CORS）'); }
   const raw = await response.text();
   if (response.status === 404 || response.status === 405) throw Error('文字模型：' + byHand);
-  if (!response.ok) { const error = failure(response.status, raw, key); if (/volces\.com|volcengine/i.test(base) && response.status !== 401) error.message += '。' + byHand; throw error; }
+  if (!response.ok) throw failure(response.status, raw, key);
   let json;
   try { json = JSON.parse(raw); } catch { throw Error('文字模型：' + byHand); }
   const list = Array.isArray(json?.data) ? json.data : Array.isArray(json?.models) ? json.models : Array.isArray(json) ? json : [];
