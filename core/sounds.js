@@ -14,7 +14,7 @@ export const STRENGTHS = Object.freeze(['', '轻', '重']);
 export const SOUND_LIMITS = Object.freeze({file: 20 * 1024 * 1024, names: 150, versions: [1, 5]});
 
 export function defaultSounds() {
-  return {enabled: false, ambienceVolume: 0.45, sfxVolume: 0.8, vary: true, generate: false, versions: 2};
+  return {enabled: false, ambienceVolume: 0.45, sfxVolume: 0.8, vary: true, generate: false, versions: 2, pack: true, packHidden: []};
 }
 const unit = (value, fallback) => { const n = Number(value); return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback; };
 export function normalizeSounds(value) {
@@ -27,7 +27,9 @@ export function normalizeSounds(value) {
     sfxVolume: unit(value.sfxVolume, base.sfxVolume),
     vary: value.vary !== false,
     generate: value.generate === true,
-    versions: Number.isFinite(versions) ? Math.min(SOUND_LIMITS.versions[1], Math.max(SOUND_LIMITS.versions[0], versions)) : base.versions
+    versions: Number.isFinite(versions) ? Math.min(SOUND_LIMITS.versions[1], Math.max(SOUND_LIMITS.versions[0], versions)) : base.versions,
+    pack: value.pack !== false,
+    packHidden: [...new Set((Array.isArray(value.packHidden) ? value.packHidden : []).map(String).filter(id => id.startsWith('pack:')))].slice(0, 2000)
   };
 }
 
@@ -188,7 +190,19 @@ export function latestAmbience(texts) {
 // ---------- 缺的声音: names the model wrote that the library has none of ----------
 export function missingKey(kind, name) { return 'missing:' + kind + ':' + soundName(name); }
 
-// ---------- 音效包: a file of sounds to share (and the shipped pack) ----------
+// ---------- 自带音效包: sounds/pack.json in the plugin, played from the plugin's folder (never copied into the browser) ----------
+/** The shipped pack's rows (no audio; url says where it is). Ids stay the same from one version to the next. */
+export function packRows(pack, base) {
+  if (!pack || pack.format !== 'st-iphonie-pack' || !Array.isArray(pack.sounds)) return [];
+  const credits = pack.credits || {};
+  return pack.sounds.filter(s => s && typeof s.file === 'string' && /^[\w.-]+\.mp3$/.test(s.file)).map(s => {
+    const row = soundRow({...s, source: 'pack'}), c = credits[s.credit];
+    return {...row, id: `pack:${s.file}#${row.name}#${row.layer}`, mime: 'audio/mpeg', size: Number(s.size) || 0, at: 0, url: new URL(s.file, base).href,
+      credit: c ? `${String(c.title || '').slice(0, 60)} · ${String(c.user || '').slice(0, 40)}` : ''};
+  });
+}
+
+// ---------- 音效包: a file of sounds to share ----------
 export const PACK_FORMAT = 'st-iphonie-sounds';
 /** A pack read from its JSON: its rows with the audio as base64, checked. */
 export function readPack(value) {

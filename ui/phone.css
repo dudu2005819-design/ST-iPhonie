@@ -1714,3 +1714,4 @@ button.gift-item[data-short]{opacity:.55}
 .sticker-row img{width:44px;height:44px;flex-shrink:0;object-fit:contain;border-radius:8px;background:var(--card2)}
 .sticker-row>span{flex:1;min-width:0;display:grid}
 .sticker-row small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink2);font-size:11px}
+.sound-search{margin:6px 0 2px}

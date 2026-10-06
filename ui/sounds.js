@@ -15,7 +15,7 @@ const baseName = file => soundName(String(file?.name || '').replace(/\.[^.]+$/, 
 
 export function soundsApp(ctx) {
   const {api} = ctx, v = createView(ctx, 'sounds');
-  let rows = [], missing = [], epoch = 0, uploadFor = null;
+  let rows = [], missing = [], pack = null, epoch = 0, uploadFor = null, query = '';
   const state = () => api.getState().sounds;
   const live = () => { try { return api.soundState?.() || null; } catch { return null; } };
   const elevenKey = () => !!api.keyStatus?.('eleven');
@@ -32,9 +32,9 @@ export function soundsApp(ctx) {
   }
   async function render() {
     const ticket = ++epoch;
-    const [all, gone] = await Promise.all([api.listSounds(), api.soundMissing()]);
+    const [all, gone, shipped] = await Promise.all([api.listSounds(), api.soundMissing(), api.packInfo?.().catch(() => null)]);
     if (v.disposed || ticket !== epoch) return;
-    rows = all; missing = gone;
+    rows = all; missing = gone; pack = shipped;
     const s = state(), now = live(), key = elevenKey();
     const playing = now?.ambience ? `<span><strong>≋ ${esc(now.ambience)}</strong><small>正在放的氛围音</small></span>${btn('stop-ambience', icon('stop') + '停', 'secondary small')}`
       : now?.waiting ? `<span><strong>≋ ${esc(now.waiting)}</strong><small>点一下酒馆页面就开始放（浏览器要先点一下才允许出声）</small></span>`
@@ -50,8 +50,11 @@ export function soundsApp(ctx) {
       + `<div class="group">${toggle('generate', '缺的声音让 ElevenLabs 做', s.generate, '剧情写了声音库里没有的声音时，模型会附一句英文描述，ElevenLabs 照着做出来存进声音库，下次直接用。会用掉 ElevenLabs 的额度。')}
         ${s.generate ? `${field('每个声音最多做几个版本', select('versions', s.versions, [1, 2, 3, 4, 5].map(n => [n, n + ' 个'])), '只有 ElevenLabs 做的声音会补新版本：不到这个数时，偶尔再做一个，以后轮流放，听不腻。你自己传的声音不会花额度。')}
           ${key ? '' : '<p class="hint">还没有填 ElevenLabs 的密钥：在引擎 App 的 ElevenLabs 里填好才能生成。</p>'}` : ''}</div>`
+      + (pack?.count ? groupTitle('自带音效包') + `<div class="group">${toggle('pack', `用自带的声音（${pack.names} 个名字）`, s.pack !== false, '插件里带了一套 Freesound 上的 CC0 声音（雨夜、海边、篝火、敲门、脚步、翻书……），直接从插件文件夹里放，不占浏览器的空间。关掉后剧情只用你自己的声音和 ElevenLabs 做的。')}
+        ${pack.hidden ? `<div class="list-row static"><span><strong>拿掉了 ${pack.hidden} 个自带声音</strong><small>拿掉的只是不用了，随时能找回</small></span>${btn('pack-restore', '找回', 'secondary small')}</div>` : ''}</div>` : '')
       + (missing.length ? groupTitle('缺的声音', `<small>${missing.length}</small>`) + `<div class="group">${missing.map(m => `<div class="list-row static sound-missing"><span><strong>${esc(m.name)}</strong><small>${KIND_NAMES[m.type]} · 想用过 ${m.count} 次${m.describe ? ' · ' + esc(m.describe) : ''}</small></span><span class="row-actions">${btn('missing-upload', icon('import'), 'icon-button', `data-type="${esc(m.type)}" data-name="${esc(m.name)}" aria-label="上传「${esc(m.name)}」"`)}${key ? btn('missing-make', icon('star'), 'icon-button', `data-type="${esc(m.type)}" data-name="${esc(m.name)}" data-describe="${esc(m.describe)}" aria-label="让 ElevenLabs 做「${esc(m.name)}」"`) : ''}${btn('missing-dismiss', icon('close'), 'icon-button', `data-type="${esc(m.type)}" data-name="${esc(m.name)}" aria-label="不要「${esc(m.name)}」"`)}</span></div>`).join('')}</div>` : '')
       + `<div class="actions">${`<label class="primary file-button">${icon('add')}添加声音<input type="file" data-sound-file multiple accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.opus,.webm" aria-label="选择声音文件"></label>`}${key ? btn('make-new', icon('star') + 'ElevenLabs 做一个', 'secondary') : ''}</div>`
+      + (rows.length > 12 ? `<input class="search sound-search" data-sound-search type="search" placeholder="找声音（按名字）" value="${esc(query)}" aria-label="找声音">` : '')
       + (rows.length
         ? ['ambience', 'sfx'].map(type => { const list = names(type); return list.length ? groupTitle(KIND_NAMES[type], `<small>${list.length}</small>`) + `<div class="group">${list.map(nameRow).join('')}</div>` : ''; }).join('')
         : empty('声音库还是空的', '添加自己的声音文件（雨声、敲门声……起好名字），或者打开 ElevenLabs 生成。名字就是剧情里写的名字，同一个名字可以放好几个版本。', 'music')));
@@ -61,14 +64,15 @@ export function soundsApp(ctx) {
   function openName(type, name) {
     const list = rows.filter(r => r.type === type && r.name === name);
     if (!list.length) return render();
-    const d = ctx.dialog(name, `${field('名字', input('name', name, 'text', 'maxlength="20"'), '剧情里写的就是这个名字。改了以后，所有版本一起改名。')}
-      <div class="actions">${btn('rename', '改名', 'secondary')}</div>
+    const own = list.filter(r => r.source !== 'pack');
+    const d = ctx.dialog(name, `${own.length ? `${field('名字', input('name', name, 'text', 'maxlength="20"'), '剧情里写的就是这个名字。改了以后，你自己的和 ElevenLabs 做的版本一起改名（自带的不变）。')}
+      <div class="actions">${btn('rename', '改名', 'secondary')}</div>` : '<p class="help-copy">这是自带的声音：剧情里写这个名字就会放。不喜欢哪个版本可以拿掉，也可以自己再加一个版本。</p>'}
       ${groupTitle('版本', `<small>${list.length}</small>`)}
       <div class="group">${list.map(r => `<div class="sound-version" data-id="${esc(r.id)}">
-        <div class="sound-version-head">${btn('listen', icon('play'), 'icon-button', `data-id="${esc(r.id)}" aria-label="试听"`)}<span><strong>${esc(SOUND_SOURCES[r.source])}</strong><small>${size(r.size)}${r.describe ? ' · ' + esc(r.describe) : ''}</small></span>${btn('delete-version', icon('trash'), 'icon-button', `data-id="${esc(r.id)}" aria-label="删除这个版本"`)}</div>
-        <div class="sound-version-fields">${select('kind', kindValue(r), KINDS, `data-id="${esc(r.id)}" aria-label="种类"`)}${select('strength', r.strength, STRENGTH_CHOICES, `data-id="${esc(r.id)}" aria-label="轻重"`)}</div></div>`).join('')}</div>
+        <div class="sound-version-head">${btn('listen', icon('play'), 'icon-button', `data-id="${esc(r.id)}" aria-label="试听"`)}<span><strong>${esc(SOUND_SOURCES[r.source])}${r.layer === 'dot' ? ' · 点缀' : ''}</strong><small>${r.seconds ? r.seconds + ' 秒 · ' : ''}${size(r.size)}${r.describe ? ' · ' + esc(r.describe) : ''}${r.credit ? ' · ' + esc(r.credit) : ''}</small></span>${btn('delete-version', icon('trash'), 'icon-button', `data-id="${esc(r.id)}" aria-label="${r.source === 'pack' ? '不用这个版本' : '删除这个版本'}"`)}</div>
+        ${r.source === 'pack' ? '' : `<div class="sound-version-fields">${select('kind', kindValue(r), KINDS, `data-id="${esc(r.id)}" aria-label="种类"`)}${select('strength', r.strength, STRENGTH_CHOICES, `data-id="${esc(r.id)}" aria-label="轻重"`)}</div>`}</div>`).join('')}</div>
       <p class="hint">氛围音的底子一直循环（雨声、海浪），点缀偶尔在左边或右边响一下（雷声、鸟叫）。轻重：剧情写了 <code>名字|轻</code> 或 <code>名字|重</code> 时，先挑对应的版本，没有就挑不分轻重的。</p>
-      <div class="actions"><label class="secondary file-button">${icon('add')}再加一个版本<input type="file" data-version-file multiple accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.opus,.webm" aria-label="选择声音文件"></label>${btn('export-name', icon('download') + '导出', 'secondary')}</div>`);
+      <div class="actions"><label class="secondary file-button">${icon('add')}再加一个版本<input type="file" data-version-file multiple accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.opus,.webm" aria-label="选择声音文件"></label>${own.length ? btn('export-name', icon('download') + '导出', 'secondary') : ''}</div>`);
     const close = () => { d.close(); render(); };
     d.body.addEventListener('click', e => {
       const b = e.target.closest('[data-action]');
@@ -79,16 +83,16 @@ export function soundsApp(ctx) {
           case 'rename': {
             const next = soundName(d.body.querySelector('[data-field=name]').value);
             if (!next) throw Error('给声音起个名字');
-            for (const r of list) await api.updateSound(r.id, {name: next});
+            for (const r of own) await api.updateSound(r.id, {name: next});
             ctx.notify(`改成了「${next}」`); close(); break;
           }
           case 'listen': { const on = await api.soundListen?.(b.dataset.id); if (on === undefined) ctx.notify('在酒馆里打开小手机才能试听'); break; }
           case 'delete-version':
-            if (!await ctx.confirm('删除这个版本？')) return;
+            if (!await ctx.confirm(b.dataset.id.startsWith('pack:') ? '不用这个自带的版本？' : '删除这个版本？', b.dataset.id.startsWith('pack:') ? '以后可以在「自带音效包」里找回。' : '')) return;
             await api.deleteSounds([b.dataset.id]);
             if (list.length <= 1) close(); else { d.close(); await render(); openName(type, name); }
             break;
-          case 'export-name': await download(list.map(r => r.id), name); break;
+          case 'export-name': await download(own.map(r => r.id), name); break;
         }
       })().catch(error => ctx.notify(error.message, {error: true}));
     });
@@ -184,10 +188,16 @@ export function soundsApp(ctx) {
   v.on('change', '[data-field]', async el => {
     if (el.closest('.sheet')) return;
     const key = el.dataset.field, value = el.type === 'checkbox' ? el.checked : el.value;
-    if (!['enabled', 'vary', 'generate', 'versions'].includes(key)) return;
+    if (!['enabled', 'vary', 'generate', 'versions', 'pack'].includes(key)) return;
     api.saveSounds({[key]: key === 'versions' ? Number(value) : value});
     if (key === 'enabled' && value) ctx.notify('音效开了：之后的回复里会有氛围音和音效');
     await render();
+  });
+  // Finding a sound: the names that do not match are hidden in place (the box keeps its focus).
+  v.on('input', '[data-sound-search]', el => {
+    query = el.value.trim();
+    for (const row of v.root.querySelectorAll('[data-action=open-name]')) row.hidden = !!query && !row.dataset.name.includes(query);
+    for (const group of v.root.querySelectorAll('.group')) if (group.querySelector('[data-action=open-name]')) { const shown = !!group.querySelector('[data-action=open-name]:not([hidden])'); group.hidden = !shown; if (group.previousElementSibling?.classList.contains('group-title')) group.previousElementSibling.hidden = !shown; }
   });
   v.on('input', '[data-volume]', el => { const out = el.closest('.field')?.querySelector('output'); if (out) out.textContent = el.value + '%'; });
   v.on('change', '[data-volume]', el => { api.saveSounds({[el.dataset.volume]: Number(el.value) / 100}); });
@@ -196,6 +206,7 @@ export function soundsApp(ctx) {
     switch (el.dataset.action) {
       case 'open-name': openName(el.dataset.type, el.dataset.name); break;
       case 'stop-ambience': api.soundStopAmbience?.(); await render(); break;
+      case 'pack-restore': api.saveSounds({packHidden: []}); await render(); ctx.notify('自带的声音都找回来了'); break;
       case 'sound-tools': tools(); break;
       case 'make-new': makeSheet(); break;
       case 'missing-make': makeSheet({type: el.dataset.type, name: el.dataset.name, describe: el.dataset.describe}); break;

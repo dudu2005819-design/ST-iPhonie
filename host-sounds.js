@@ -20,10 +20,12 @@ export function createSoundHost({context, settings, backend, notice = () => {}, 
 
   // ---------- The library ----------
   let loading = null;
-  function reload() { loading = backend.listSounds().then(list => { if (!closed) rows = list; return rows; }).catch(() => rows); return loading; }
+  // Read only while 音效 is on: someone who never turns it on never loads the shipped pack's list.
+  function reload() { if (!on()) { rows = []; loading = null; return Promise.resolve(rows); } loading = backend.listSounds().then(list => { if (!closed) rows = list; return rows; }).catch(() => rows); return loading; }
   const unsubscribe = backend.subscribe?.(event => {
     if (event.type === 'sounds' && !event.missing) { for (const id of buffers.keys()) if (!rows.some(r => r.id === id)) buffers.delete(id); reload(); }
-    if (event.type === 'settings') refresh();
+    // Settings: the volumes, and the shipped pack turned on or off (or some of it taken out).
+    if (event.type === 'settings') { refresh(); reload(); }
   });
   reload();
 
@@ -82,14 +84,39 @@ export function createSoundHost({context, settings, backend, notice = () => {}, 
   }
 
   // ---------- Ambience ----------
+  /**
+   * A bed that loops without a seam: each pass fades out over its last seconds while the next one fades in from the
+   * start (most recordings were not made to loop). The first pass starts at `offset`, and fades in with the whole bed.
+   */
+  function loopBed(data, out, offset) {
+    const fade = Math.min(3, data.duration / 4), live = new Set();
+    let timer = 0, stopped = false;
+    function pass(from, fadeIn) {
+      const src = ctx.createBufferSource(), level = ctx.createGain(), t = ctx.currentTime, rest = data.duration - from;
+      src.buffer = data; src.connect(level); level.connect(out);
+      try {
+        level.gain.setValueAtTime(fadeIn ? 0 : 1, t);
+        if (fadeIn) level.gain.linearRampToValueAtTime(1, t + fade);
+        level.gain.setValueAtTime(1, t + Math.max(fade, rest - fade));
+        level.gain.linearRampToValueAtTime(0, t + rest);
+      } catch { /* a context without automation keeps it at 1 */ }
+      src.onended = () => { live.delete(src); try { src.disconnect(); level.disconnect(); } catch {} };
+      src.start(t, from);
+      live.add(src);
+      timer = setTimer(() => { if (!stopped && !closed) pass(0, true); }, Math.max(0.5, rest - fade) * 1000);
+    }
+    // Not so near the end that the first pass is over before the next one could come in.
+    pass(Math.min(offset, Math.max(0, data.duration - 3 * fade)), false);
+    return {stop() { stopped = true; clearTimer(timer); for (const src of live) { try { src.stop(); } catch {} } live.clear(); }};
+  }
   function stopAmbience(seconds = FADE) {
     const old = ambience;
     ambience = {name: ''};
     if (old.timer) clearTimer(old.timer);
     if (old.src && ctx) {
       ramp(old.gain.gain, 0, seconds);
-      const src = old.src;
-      setTimer(() => { try { src.stop(); src.disconnect(); old.gain.disconnect(); } catch {} }, seconds * 1000 + 100);
+      const bed = old.src;
+      setTimer(() => { try { bed.stop(); old.gain.disconnect(); } catch {} }, seconds * 1000 + 100);
     }
     if (old.name) changed();
   }
@@ -117,11 +144,9 @@ export function createSoundHost({context, settings, backend, notice = () => {}, 
       if (ticket !== ambienceTicket || closed || !running()) return;
       if (data) {
         last.set('a:' + name, bed.id);
-        src = ctx.createBufferSource(); gain = ctx.createGain();
-        src.buffer = data; src.loop = true; gain.gain.value = 0;
-        src.connect(gain); gain.connect(ambienceOut);
-        // Each time from somewhere else in the loop, so the same rain does not always start the same way.
-        src.start(0, opts().vary !== false ? random() * data.duration : 0);
+        gain = ctx.createGain(); gain.gain.value = 0; gain.connect(ambienceOut);
+        // Each time from somewhere else in the recording, so the same rain does not always start the same way.
+        src = loopBed(data, gain, opts().vary !== false ? random() * data.duration : 0);
         ramp(gain.gain, 1, FADE);
       }
     }
@@ -290,7 +315,7 @@ export function createSoundHost({context, settings, backend, notice = () => {}, 
     try { await (ctx.state === 'running' ? null : ctx.resume()); } catch {}
     if (!running()) { preview = null; throw Error('浏览器还不让出声：点一下页面再试'); }
     if (loading) await loading;
-    const row = rows.find(r => r.id === soundId) || (await reload()).find(r => r.id === soundId);
+    const row = rows.find(r => r.id === soundId) || (await backend.listSounds()).find(r => r.id === soundId);
     if (!row) { preview = null; throw Error('这个声音已经不在了'); }
     const src = await shot(row, {out: row.type === 'ambience' ? ambienceOut : sfxOut, strength: row.strength});
     if (!src) { preview = null; throw Error('这个声音放不出来（文件可能坏了，或者浏览器不支持这种格式）'); }

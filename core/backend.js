@@ -10,7 +10,7 @@ import { normalizeEmbed, embedReady, embedTexts } from './embed.js';
 import { bookId, emptyBook, cleanBook, removeNode } from './memory.js';
 import { normalizeSync, runSync, removeSync, SYNC_PARTS } from './sync.js';
 import { normalizePool } from './auto-voice.js';
-import { normalizeSounds, soundRow, readPack, missingKey, soundName, PACK_FORMAT, SOUND_LIMITS, SOUND_KINDS } from './sounds.js';
+import { normalizeSounds, soundRow, readPack, missingKey, soundName, packRows, PACK_FORMAT, SOUND_LIMITS, SOUND_KINDS } from './sounds.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
@@ -87,7 +87,7 @@ const DRAWN_SOURCES = [
 export class TTSBackend {
     constructor({ settings, persist = () => {}, notify = () => {}, change = () => {}, unknown = () => {},
         providers = new Providers(), cache, library, keyStore, sink, novelai, chats, indexedDB = globalThis.indexedDB, syncStorage = () => globalThis.localStorage,
-        imageFetch = (...args) => globalThis.fetch(...args), tavernHeaders = () => globalThis.SillyTavern?.getContext?.()?.getRequestHeaders?.() || {} } = {}) {
+        imageFetch = (...args) => globalThis.fetch(...args), soundPack = '', tavernHeaders = () => globalThis.SillyTavern?.getContext?.()?.getRequestHeaders?.() || {} } = {}) {
         this.settings = normalizeSettings(settings);
         validateSettings(this.settings);
         this.persist = persist;
@@ -115,6 +115,9 @@ export class TTSBackend {
         this.memoryStore = new AppStore(this.settings.scope, { indexedDB, database: 'st-iphonie-memory-v1' });
         // 音效 (core/sounds.js): the sound library and the names the story asked for that it has none of. Its own database: big.
         this.sounds = new AppStore(this.settings.scope, { indexedDB, database: 'st-iphonie-sounds-v1' });
+        // 自带音效包: the folder of the plugin's sounds (sounds/pack.json lists them); '' when there is none (tests).
+        this.soundPack = soundPack;
+        this.packLoad = null;
         // 向量模型's key (core/embed.js).
         this.embedKey = '';
         // 分区: the tavern's open character card (or group), told by the tavern page (index.js).
@@ -1304,13 +1307,37 @@ export class TTSBackend {
     // ---------- 音效 ----------
     /** {enabled, ambienceVolume, sfxVolume, vary, generate, versions}. */
     saveSounds(patch) {
-        const next = this.getState(), allowed = ['enabled', 'ambienceVolume', 'sfxVolume', 'vary', 'generate', 'versions'];
+        const next = this.getState(), allowed = ['enabled', 'ambienceVolume', 'sfxVolume', 'vary', 'generate', 'versions', 'pack', 'packHidden'];
         next.sounds = normalizeSounds({ ...next.sounds, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
         return this.save(next).sounds;
     }
-    /** The sound library without the audio, newest first. */
-    async listSounds() { return (await this.sounds.list('sound')).map(({ blob, kind, ...row }) => row); }
-    async soundBlob(id) { const row = await this.sounds.get(id); return row?.kind === 'sound' ? row.blob : null; }
+    /** The shipped pack, read once (none when the plugin has no sounds folder or it cannot be read). */
+    packAll() {
+        if (!this.soundPack) return Promise.resolve([]);
+        this.packLoad ||= this.imageFetch(new URL('pack.json', this.soundPack).href).then(r => r.ok ? r.json() : null).then(pack => packRows(pack, this.soundPack)).catch(() => { this.packLoad = null; return []; });
+        return this.packLoad;
+    }
+    /** The shipped sounds in use: none while the pack is off, and not the ones taken out. */
+    async packSounds() {
+        const s = this.settings.sounds;
+        if (s.pack === false) return [];
+        const hidden = new Set(s.packHidden || []);
+        return (await this.packAll()).filter(r => !hidden.has(r.id));
+    }
+    /** The sound library without the audio: the user's own and ElevenLabs-made ones newest first, then the shipped pack. */
+    async listSounds() { return [...(await this.sounds.list('sound')).map(({ blob, kind, ...row }) => row), ...(await this.packSounds()).map(({ url, ...row }) => row)]; }
+    async soundBlob(id) {
+        if (String(id).startsWith('pack:')) {
+            const row = (await this.packAll()).find(r => r.id === id);
+            if (!row) return null;
+            const r = await this.imageFetch(row.url);
+            if (!r.ok) throw Error('读不到自带的声音（' + r.status + '）');
+            return r.blob();
+        }
+        const row = await this.sounds.get(id); return row?.kind === 'sound' ? row.blob : null;
+    }
+    /** How many of the shipped sounds there are, and how many were taken out. */
+    async packInfo() { const all = await this.packAll(); return { names: new Set(all.map(r => r.type + '|' + r.name)).size, count: all.length, hidden: (this.settings.sounds.packHidden || []).length }; }
     /** Adds sounds: each {name, type, layer, strength, source, describe, seconds, blob}. The names they answer are no longer missing. */
     async addSounds(list) {
         this.assertOpen();
@@ -1332,6 +1359,7 @@ export class TTSBackend {
     /** Renames or re-sorts a sound: name, type, layer, strength, describe. */
     async updateSound(id, patch = {}) {
         const allowed = ['name', 'type', 'layer', 'strength', 'describe'];
+        if (String(id).startsWith('pack:')) throw Error('自带的声音不能改：可以删掉它，再自己传一个');
         const row = await this.sounds.change(id, doc => {
             if (doc.kind !== 'sound') throw Error('这个声音已经不在了');
             const next = soundRow({ ...doc, ...Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key))) });
@@ -1345,7 +1373,10 @@ export class TTSBackend {
     }
     async deleteSounds(ids) {
         const list = [...new Set((Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean))];
-        for (const id of list) await this.sounds.remove(id);
+        // A shipped sound is only taken out of use (it can come back); the others are deleted.
+        const pack = list.filter(id => id.startsWith('pack:'));
+        if (pack.length) this.saveSounds({ packHidden: [...(this.settings.sounds.packHidden || []), ...pack] });
+        for (const id of list) if (!id.startsWith('pack:')) await this.sounds.remove(id);
         if (list.length) this.emit('sounds', {});
         return list.length;
     }
@@ -1373,6 +1404,7 @@ export class TTSBackend {
     /** 导出音效包: the chosen sounds (all when none are named) in one file to share. */
     async exportSounds(ids = null, name = '') {
         const wanted = Array.isArray(ids) && ids.length ? new Set(ids) : null;
+        // Only the user's own and ElevenLabs-made sounds: everyone has the shipped pack.
         const rows = (await this.sounds.list('sound')).filter(r => !wanted || wanted.has(r.id)).reverse();
         if (!rows.length) throw Error('还没有声音可以导出');
         const sounds = [];
@@ -1751,7 +1783,7 @@ export class TTSBackend {
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes, sources }) => ({ count, bytes, sources: Object.fromEntries(Object.entries(sources).map(([k, { ids, ...rest }]) => [k, rest])) })), deleteGeneratedPhotos: sources => this.deleteGeneratedPhotos(sources),
             saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
             saveSounds: patch => this.saveSounds(clone(patch)), listSounds: () => this.listSounds(), soundBlob: id => this.soundBlob(id), addSounds: list => this.addSounds(list), updateSound: (id, patch) => this.updateSound(id, clone(patch || {})), deleteSounds: ids => this.deleteSounds([...(ids || [])]),
-            soundMissing: () => this.soundMissing(), dismissMissing: (type, name) => this.dismissMissing(type, name), generateSound: input => this.generateSound(clone(input || {})), exportSounds: (ids, name) => this.exportSounds(ids ? [...ids] : null, name), importSounds: (file, options) => this.importSounds(file, clone(options || {})),
+            packInfo: () => this.packInfo(), soundMissing: () => this.soundMissing(), dismissMissing: (type, name) => this.dismissMissing(type, name), generateSound: input => this.generateSound(clone(input || {})), exportSounds: (ids, name) => this.exportSounds(ids ? [...ids] : null, name), importSounds: (file, options) => this.importSounds(file, clone(options || {})),
             saveText: patch => this.saveText(clone(patch)), setTextKey: (id, key) => this.setTextKey(id, key), clearTextKey: id => this.clearTextKey(id), textKeyHint: id => this.textKeyHint(id), textModels: draft => this.textModels(clone(draft || {})),
             syncStatus: () => this.syncStatus(), saveSync: patch => this.saveSync(clone(patch)), syncNow: () => this.syncNow().then(() => this.syncStatus()), clearSyncFiles: () => this.clearSyncFiles(),
             listMoments: async () => { const here = this.here(); return (await this.moments.list()).filter(p => inSpace(p, here)); }, getMoment: id => this.moments.get(id),
