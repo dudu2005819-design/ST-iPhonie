@@ -82,6 +82,22 @@ export function settingsApp(ctx) {
     try { const n = await api.clearSyncFiles(); ctx.notify(n ? '酒馆里的那份已删除' : '酒馆里没有存过'); } catch (error) { ctx.notify(error.message, {error: true}); }
     await render();
   }
+  /**
+   * 本地资料: one row with what this device holds in all (voice cache included); opened, each kind with its count
+   * and size, and the in-text pictures of this chat, which are kept in the tavern.
+   */
+  function storageFold(cache, library, drawn, chatPictures) {
+    const row = (label, note, amount, extra = '') => `<div class="setting-row"><span class="row-text"><strong>${label}</strong>${note ? `<small>${note}</small>` : ''}</span><small class="part-size">${amount}</small>${extra}</div>`;
+    const parts = [
+      cache.available && cache.count ? row('语音缓存', `${cache.count} 段`, size(cache.bytes)) : '',
+      ...(library ? [['photos', '相册', '张'], ['favorites', '语音收藏', '段'], ['references', '参考音频', '段'], ['vibes', 'Vibe 参考图', '张'], ['notes', '备忘录', '条']].filter(([k]) => library[k])
+        .map(([k, label, unit]) => row(label, `${library[k]} ${unit}${k === 'photos' && drawn?.count ? `，画出来的 ${drawn.count} 张` : ''}`, size(library.sizes?.[k] || 0),
+          k === 'vibes' && (library.sizes?.vibes || 0) > 300 * 1024 * library.vibes ? btn('vibes-compact', '压缩原图', 'chip-button') : '')) : []),
+      chatPictures?.count ? row('当前聊天的正文图片', `${chatPictures.count} 张`, '存在酒馆') : ''
+    ].filter(Boolean);
+    const total = library ? `${size(library.bytes + (cache.available ? cache.bytes : 0))} / ${size(library.limit)}` : '无法读取';
+    return `<details class="storage-fold" data-group="storage-parts"><summary><span>本地资料</span><small>${total}</small></summary>${parts.join('') || '<div class="setting-row"><span>什么都没有存</span></div>'}</details>`;
+  }
   /** 清除相册里的绘图: pick which of the drawn photos go (all ticked), with how many and how big each is. */
   async function clearDrawn() {
     const drawn = await api.generatedPhotos();
@@ -160,12 +176,7 @@ export function settingsApp(ctx) {
       + `<div class="group">${toggle('lockOnOpen', '打开时显示锁屏', phone.lockOnOpen, '锁屏可随时跳过，是插件内的外观，不是手机安全锁。')}<button class="list-row" data-action="lock"><span><strong>看一眼锁屏</strong></span>${icon('lock')}</button></div>`
       + groupTitle('存储')
       + `<div class="group">${toggle('cacheEnabled', '保存语音缓存', s.general.cacheEnabled, '已生成的音频用于重播。清缓存不会删除收藏、相册、备忘录或参考音频。')}
-          <div class="setting-row"><span>语音缓存</span><small>${cache.available ? cache.count + ' 段 · ' + size(cache.bytes) : '本地缓存不可用'}</small></div>
-          ${library?.sizes ? `<details class="storage-fold" data-group="storage-parts"><summary><span>本地资料</span><small>${size(library.bytes)} / ${size(library.limit)}</small></summary>
-            ${[['photos', '相册', '张'], ['favorites', '语音收藏', '段'], ['references', '参考音频', '段'], ['vibes', 'Vibe 参考图', '张'], ['notes', '备忘录', '条']].filter(([k]) => library[k]).map(([k, label, unit]) => `<div class="setting-row"><span class="row-text"><strong>${label}</strong><small>${library[k]} ${unit}${k === 'photos' && drawn?.count ? `，画出来的 ${drawn.count} 张` : ''}</small></span><small class="part-size">${size(library.sizes[k] || 0)}</small>${k === 'vibes' && library.sizes.vibes > 300 * 1024 * library.vibes ? btn('vibes-compact', '压缩原图', 'chip-button') : ''}</div>`).join('') || '<div class="setting-row"><span>什么都没有存</span></div>'}</details>`
-            : `<div class="setting-row"><span>本地资料</span><small>${library ? size(library.bytes) + ' / ' + size(library.limit) : '无法读取'}</small></div>`}
-          <div class="setting-row"><span>相册里的绘图</span><small>${drawn ? drawn.count + ' 张 · ' + size(drawn.bytes) : '无法读取'}</small></div>
-          ${chatPictures ? `<div class="setting-row"><span>当前聊天的正文图片</span><small>${chatPictures.count} 张 · 存在酒馆</small></div>` : ''}</div>
+          ${storageFold(cache, library, drawn, chatPictures)}</div>
         <details class="tool-fold" data-group="storage-clear"><summary>${icon('trash')}清理<small>语音缓存 · 相册里的绘图（绘图 App、正文、查手机、朋友圈）· 正文图片</small></summary><div>
           <div class="actions" style="margin-top:0">${btn('clear-cache', icon('trash') + '清理语音缓存', 'danger')}${btn('clear-drawn', icon('trash') + '清除相册里的绘图', 'danger', drawn?.count ? '' : 'disabled')}${chatPictures ? btn('clear-chat-pictures', icon('trash') + '清除正文图片', 'danger', chatPictures.count ? '' : 'disabled') : ''}</div></div></details>
         ${syncGroup()}
