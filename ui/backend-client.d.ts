@@ -22,6 +22,8 @@ export interface Route {
     bindings: Partial<Record<Engine, VoiceBinding>>;
     /** Fixed appearance tags added when this character appears in a picture. */
     appearance?: string;
+    /** The voice was picked by 自动挑音色 (cleared when it is changed by hand), with the voice's name and why. */
+    autoVoice?: boolean; autoName?: string; autoReason?: string;
 }
 export type RouteInput = Pick<Route, 'name'> & Partial<Omit<Route, 'name'>>;
 export type RequestRoute = Pick<Route, 'voice'> & Partial<Omit<Route, 'voice'>>;
@@ -46,8 +48,12 @@ export interface GeneralSettings {
     waveformEnabled: boolean;
     /** Built-in wallpapers move slowly (clouds, stars, bubbles, leaves, fireflies). */
     wallpaperMotion?: boolean;
-    /** Story requests send older replies without voice tags (each line becomes its translation); the newest voiced reply keeps them while voice is on. */
+    /** Story requests send older replies without voice tags (each line becomes its translation). */
     stripVoice?: boolean;
+    /** Keep the newest voiced reply as it is, as an example of the format (off by default). */
+    voiceExample?: boolean;
+    /** 自动挑音色: a character met without a voice gets one picked by the text model (候选池 first). */
+    autoVoice?: boolean;
 }
 export interface Injection {
     position: InjectionPosition;
@@ -76,6 +82,8 @@ export interface Settings {
     enabled: boolean;
     theme: Theme;
     general: GeneralSettings;
+    /** 候选音色池 for 自动挑音色. */
+    voicePool?: VoicePoolEntry[];
     selected: string;
     activePreset: string;
     routes: Route[];
@@ -399,6 +407,7 @@ export interface AudioMetadata {
 }
 export interface CachedAudio { key: string; at: number; bytes: number; metadata: AudioMetadata; }
 export interface CacheStats { count: number; bytes: number; available: boolean; }
+export interface VoicePoolEntry { engine: 'fish' | 'mini' | 'eleven' | 'mimo'; voice: string; model: string; name: string; gender: 'female' | 'male' | ''; age: 'child' | 'young' | 'adult' | 'old' | ''; style: string; }
 export interface LibraryStats { bytes: number; limit: number; notes: number; photos: number; favorites: number; references: number; vibes: number; /** Bytes by kind: notes, photos, favorites, references, vibes, phone. */ sizes: Record<string, number>; }
 export type LibraryCollection = 'favorites' | 'cache' | 'photos' | 'notes';
 
@@ -435,6 +444,10 @@ export interface BackendFacade {
     save(next: Settings, expectedRevision?: number): Settings;
     updateGeneral(patch: Partial<GeneralSettings>): Settings;
     saveRoute(route: RouteInput): Route;
+    /** 候选音色池: the voices 自动挑音色 picks from first. */
+    saveVoicePool(list: VoicePoolEntry[]): VoicePoolEntry[];
+    /** 自动挑音色 for one character again (in the tavern): resolves to the saved route, marked autoVoice. */
+    autoPickVoice?(name: string): Promise<Route>;
     deleteRoute(id: string): Settings;
     /** Returns a changed draft; it does not save the route. */
     switchRouteEngine(route: RouteInput, engine: Engine): Route;

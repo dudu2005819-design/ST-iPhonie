@@ -1643,3 +1643,8 @@ button.gift-item[data-short]{opacity:.55}
 .photo-grid.selecting button[aria-pressed=true] img{opacity:.78}
 .select-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:8px;margin:10px -4px 0;padding:10px 12px;border-radius:16px;background:var(--card);box-shadow:0 -6px 18px -10px rgba(20,40,80,.4);z-index:2}
 .select-bar>span{flex:1;font-size:13px;font-weight:700;color:var(--ink2)}
+
+/* 自动挑音色: the mark on a card, and the note in the editor. */
+.auto-chip{display:inline-block;margin-top:4px;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent-btn) 18%,transparent);color:var(--accent-btn);font-size:10.5px;font-weight:800}
+.auto-banner{align-items:center}
+.auto-banner>span{flex:1}

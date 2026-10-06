@@ -9,6 +9,7 @@ import { normalizeText, activeText, customRequest, listModels, streamText, asMes
 import { normalizeEmbed, embedReady, embedTexts } from './embed.js';
 import { bookId, emptyBook, cleanBook, removeNode } from './memory.js';
 import { normalizeSync, runSync, removeSync, SYNC_PARTS } from './sync.js';
+import { normalizePool } from './auto-voice.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
@@ -269,7 +270,7 @@ export class TTSBackend {
     updateGeneral(patch) {
         if (!patch || typeof patch !== 'object') throw Error('设置格式无效');
         const next = this.getState();
-        for (const key of ['voiceEnabled', 'cacheEnabled', 'floatingEnabled', 'waveformEnabled', 'wallpaperMotion', 'stripVoice', 'voiceExample']) if (key in patch) {
+        for (const key of ['voiceEnabled', 'cacheEnabled', 'floatingEnabled', 'waveformEnabled', 'wallpaperMotion', 'stripVoice', 'voiceExample', 'autoVoice']) if (key in patch) {
             if (typeof patch[key] !== 'boolean') throw Error('开关设置无效'); next.general[key] = patch[key];
         }
         if ('defaultLanguage' in patch) {
@@ -287,6 +288,12 @@ export class TTSBackend {
         next.selected = id;
         this.save(next);
         return clone(this.settings.routes.find(row => row.id === id));
+    }
+    /** 候选音色池: the voices 自动挑音色 picks from first. */
+    saveVoicePool(list) {
+        const next = this.getState();
+        next.voicePool = normalizePool(list);
+        return clone(this.save(next).voicePool);
     }
     deleteRoute(id) {
         const route = this.settings.routes.find(row => row.id === id);
@@ -1596,7 +1603,7 @@ export class TTSBackend {
     api() {
         const methods = {
             getState: () => this.getState(), getSnapshot: () => this.getSnapshot(), save: (next, revision) => this.save(next, revision),
-            updateGeneral: patch => this.updateGeneral(patch), saveRoute: route => this.saveRoute(route), deleteRoute: id => this.deleteRoute(id),
+            updateGeneral: patch => this.updateGeneral(patch), saveRoute: route => this.saveRoute(route), saveVoicePool: list => this.saveVoicePool(clone(list)), deleteRoute: id => this.deleteRoute(id),
             switchRouteEngine, validRoleName: name => typeof name === 'string' && !!name.trim() && !isPlaceholderRole(name),
             saveConnection: (engine, patch) => this.saveConnection(engine, patch),
             savePreset: preset => this.savePreset(preset), deletePreset: id => this.deletePreset(id), selectPreset: id => this.selectPreset(id),
