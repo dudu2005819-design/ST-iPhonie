@@ -8,7 +8,7 @@ import { normalizeCalls, buildCallRequest } from './call.js';
 import { normalizeText, activeText, customRequest, listModels, streamText, asMessages, TEXT_PRESET_ID } from './llm.js';
 import { normalizeEmbed, embedReady, embedTexts } from './embed.js';
 import { bookId, emptyBook, cleanBook, removeNode } from './memory.js';
-import { normalizeSync, runSync, SYNC_PARTS } from './sync.js';
+import { normalizeSync, runSync, removeSync, SYNC_PARTS } from './sync.js';
 import { decodeMono, encodeWav } from './audio-join.js';
 import { BACKUP_PARTS, PART_STORES, writeBackup, readBackup, sealKeys, openKeys } from './backup.js';
 import { WALLET_LIMITS, PREMIUM, DECOR_KINDS, SHOP_GIFTS, LEDGER_KINDS, premiumOf, decorKey, cents, yuan, shopGifts, normalizeGift, validateGift } from './wallet.js';
@@ -524,6 +524,18 @@ export class TTSBackend {
         clearTimeout(this.syncTimer);
         this.syncState.pending = true;
         this.syncTimer = setTimeout(() => { this.syncNow().catch(() => {}); }, delay);
+    }
+    /** Deletes the phone's copy in the tavern (this device keeps everything); the next sync starts from scratch. */
+    async clearSyncFiles() {
+        this.assertOpen();
+        if (!this.syncFiles) throw Error('在酒馆里打开小手机时才能删除酒馆里的那份');
+        if (this.syncState.running) await this.syncState.running.catch(() => {});
+        clearTimeout(this.syncTimer);
+        const removed = await removeSync(this.syncFiles);
+        this.#syncMemory({});
+        this.syncState = { ...this.syncState, pending: false, error: '', lastAt: 0, remote: null, lastResult: null };
+        this.emit('sync', this.syncStatus());
+        return removed;
     }
     /** One sync with the tavern: takes what changed there, writes what changed here. */
     async syncNow({ deviceName = '' } = {}) {
@@ -1536,7 +1548,7 @@ export class TTSBackend {
             generatedPhotos: () => this.generatedPhotos().then(({ count, bytes }) => ({ count, bytes })), deleteGeneratedPhotos: () => this.deleteGeneratedPhotos(),
             saveMoments: patch => this.saveMoments(clone(patch)), saveCalls: patch => this.saveCalls(clone(patch)),
             saveText: patch => this.saveText(clone(patch)), setTextKey: (id, key) => this.setTextKey(id, key), clearTextKey: id => this.clearTextKey(id), textKeyHint: id => this.textKeyHint(id), textModels: draft => this.textModels(clone(draft || {})),
-            syncStatus: () => this.syncStatus(), saveSync: patch => this.saveSync(clone(patch)), syncNow: () => this.syncNow().then(() => this.syncStatus()),
+            syncStatus: () => this.syncStatus(), saveSync: patch => this.saveSync(clone(patch)), syncNow: () => this.syncNow().then(() => this.syncStatus()), clearSyncFiles: () => this.clearSyncFiles(),
             listMoments: async () => { const here = this.here(); return (await this.moments.list()).filter(p => inSpace(p, here)); }, getMoment: id => this.moments.get(id),
             postMoment: ({ text, photoId } = {}) => this.momentsMutate(async () => (await this.moments.add([{ author: 'me', source: 'me', text, photoId, space: this.spaceKey() }]))[0]),
             likeMoment: (id, on = true) => this.momentsMutate(() => this.moments.like(id, 'me', on)),

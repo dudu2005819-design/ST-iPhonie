@@ -139,7 +139,8 @@ export function normalizeProfile(p = {}) {
 export function normalizeAvatars(value) {
   const out = {};
   if (!value || typeof value !== 'object') return out;
-  for (const [name, a] of Object.entries(value).slice(0, CHAT_LIMITS.contacts + 1)) {
+  // Names ('me' for the user) and groups ('g:' + the chat's id).
+  for (const [name, a] of Object.entries(value).slice(0, CHAT_LIMITS.contacts * 2)) {
     const key = text(name, 40).trim();
     if (!key || !a || typeof a !== 'object') continue;
     if (a.kind === 'photo' && a.photoId) out[key] = {kind: 'photo', photoId: text(a.photoId, 512)};

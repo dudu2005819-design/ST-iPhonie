@@ -594,6 +594,8 @@ export interface BackendFacade {
     saveSync(patch: Partial<SyncSettings>): SyncSettings;
     /** Syncs now: takes what changed in the tavern, writes what changed here. */
     syncNow(): Promise<SyncStatus>;
+    /** Deletes the phone's copy in the tavern; resolves to how many files went (0: there was none). */
+    clearSyncFiles(): Promise<number>;
     /** Model ids the custom text API lists (a free connection check); `draft` are options not saved yet. */
     textModels(draft?: TextPatch): Promise<string[]>;
     /** Checks NovelAI or the relay: the drawing route (an empty request, nothing drawn, no Anlas) and the subscription. */

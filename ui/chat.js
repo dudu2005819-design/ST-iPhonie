@@ -102,7 +102,8 @@ export function chatApp(ctx) {
 
   const engine = name => ctx.engineOf(name);
   const groupAvatar = (members, size) => `<span class="group-av" style="--s:${size}px">${members.slice(0, 3).map(m => `<i data-engine="${engine(m)}">${esc(m.slice(0, 1))}</i>`).join('')}</span>`;
-  const threadAvatar = (t, size = 48) => t.type === 'group' ? groupAvatar(t.members, size) : avatar(t.members[0], engine(t.members[0]), size);
+  // A group's own picture when one was chosen ('g:' + its id), else its members' first letters.
+  const threadAvatar = (t, size = 48) => t.type === 'group' ? (avatarPicture('g:' + t.id) ? avatar(t.name, 'none', size, 'g:' + t.id) : groupAvatar(t.members, size)) : avatar(t.members[0], engine(t.members[0]), size);
   const pendingBring = () => api.chatPendingBring?.() || null;
   const typing = () => !!threadId && !!api.chatTyping?.(threadId);
   // A reply comes in like on a phone: its messages are stored at once (memory, unread counts and other devices see
@@ -772,12 +773,12 @@ export function chatApp(ctx) {
     return avatarPicture(key) ? (key === 'me' ? '用的是酒馆里当前人设的头像' : '用的是酒馆角色卡的头像') : '只显示文字（酒馆里没有这个头像）';
   }
   /** Picks an avatar for the user ('me') or a contact: an album photo, a new picture, the tavern's avatar, or text. */
-  async function avatarSheet(key) {
+  async function avatarSheet(key, {title = '', reset = '用酒馆的头像'} = {}) {
     const rows = (await api.listPhotos()).slice(0, 30), who = key === 'me' ? '我' : key, chosen = api.getState().chat.avatars?.[key];
-    const d = ctx.dialog(`${who}的头像`, `<p class="help-copy">点一张照片，或者上传一张新的。</p>
+    const d = ctx.dialog(title || `${who}的头像`, `<p class="help-copy">点一张照片，或者上传一张新的。</p>
       <label class="secondary file-button">${icon('import')}上传图片<input type="file" accept="image/*" data-avatar-file hidden></label>
       ${rows.length ? `<div class="photo-grid pick-photos">${rows.map(r => `<button data-avatar-photo="${esc(r.id)}" aria-label="用 ${esc(r.name)} 当头像"${chosen?.photoId === r.id ? ' aria-pressed="true"' : ''}><img data-chat-photo="${esc(r.id)}" alt=""></button>`).join('')}</div>` : '<p class="hint">相册里还没有照片。</p>'}
-      <div class="actions">${btn('avatar-tavern', '用酒馆的头像', 'secondary')}${btn('avatar-text', '只显示文字', 'text-button')}</div>`);
+      <div class="actions">${btn('avatar-tavern', reset, 'secondary')}${btn('avatar-text', '只显示文字', 'text-button')}</div>`);
     for (const img of d.body.querySelectorAll('img[data-chat-photo]')) photoURL(img.dataset.chatPhoto).then(url => { if (url) img.src = url; });
     const choose = value => { d.close(); api.saveChatOptions({avatars: {[key]: value}}); ctx.notify('头像已换好'); };
     d.body.addEventListener('click', e => {
@@ -877,7 +878,7 @@ export function chatApp(ctx) {
     const group = thread.type === 'group';
     const d = ctx.dialog(thread.name, `<div class="pick-list">
       ${live ? `<button class="list-row" data-menu="reroll">${icon('refresh')}<span><strong>重新回复最后一轮</strong></span></button>` : ''}
-      ${group ? `<button class="list-row" data-menu="rename">${icon('edit')}<span><strong>改群名</strong></span></button>` : ''}
+      ${group ? `<button class="list-row" data-menu="rename">${icon('edit')}<span><strong>改群名</strong></span></button><button class="list-row" data-menu="group-avatar">${icon('image')}<span><strong>换群头像</strong><small>从相册选一张或上传，也可以换回成员拼的头像</small></span></button>` : ''}
       <button class="list-row" data-menu="memory">${icon('book')}<span><strong>记忆</strong><small>更早的聊天整理成的摘要和总结，可以改</small></span></button>
       <button class="list-row" data-menu="voice-text">${icon('book')}<span><strong>语音消息</strong><small>转文字显示什么、要不要自动转</small></span></button>
       <button class="list-row" data-menu="pace">${icon('chat')}<span><strong>逐条显示回复：${api.getState().chat.pace !== false ? '开' : '关'}</strong><small>对方的消息像真人打字一样一条条出来；关掉就一次全显示</small></span></button>
@@ -894,10 +895,11 @@ export function chatApp(ctx) {
           r.body.addEventListener('click', ev => { if (ev.target.closest('[data-action=rename-save]')) { const name = r.body.querySelector('[data-field=rename]').value; r.close(); api.updateThread(threadId, {name}).catch(err => ctx.notify(err.message)); } });
         }
         if (action === 'voice-text') voiceTextSheet();
+        if (action === 'group-avatar') await avatarSheet('g:' + threadId, {title: `${thread.name} 的群头像`, reset: '用成员拼的头像'});
         if (action === 'pace') { const on = api.getState().chat.pace === false; api.saveChatOptions({pace: on}); if (!on) { ctx.win.clearTimeout(pace.timer); pace.timer = 0; pace.queue = []; pace.hidden.clear(); render(); } ctx.notify(on ? '对方的消息会一条条出来' : '对方的消息会一次全显示'); }
         if (action === 'memory') memorySheet(ctx, {threadId, title: thread.name});
         if (action === 'clear' && await ctx.confirm('清空聊天记录？', '这段聊天会保留，消息全部删除。')) await api.deleteChatMessages(threadId, thread.messages.map(m => m.id));
-        if (action === 'delete' && await ctx.confirm('删除这段聊天？', '聊天记录会一起删除，联系人不受影响。')) { await api.deleteThread(threadId); mode = 'list'; threadId = null; render(); }
+        if (action === 'delete' && await ctx.confirm('删除这段聊天？', '聊天记录会一起删除，联系人不受影响。')) { if (api.getState().chat.avatars?.['g:' + threadId]) api.saveChatOptions({avatars: {['g:' + threadId]: null}}); await api.deleteThread(threadId); mode = 'list'; threadId = null; render(); }
       }).catch(error => ctx.notify(error.message));
     });
   }

@@ -74,8 +74,13 @@ export function settingsApp(ctx) {
     const remote = st.remote?.savedAt ? `酒馆里的是${st.remote.deviceName ? ' ' + st.remote.deviceName + ' ' : ''}在 ${time(st.remote.savedAt)} 存的` : '';
     return groupTitle('保存到酒馆')
       + `<div class="group">${toggle('syncEnabled', '保存到酒馆', st.enabled, '聊天记录、朋友圈、备忘录和相册存进酒馆里你账号的文件夹（data/你的用户名/user/files）。换一台设备、换个浏览器打开酒馆，小手机里的东西都还在；清了浏览器数据也不会丢。有改动几秒后自动保存，打开小手机时自动读取别的设备的新内容。两台设备都改了同一段聊天或同一条朋友圈时，会合并成一份（消息和评论都保留）；只有一边改过就直接用那一边的。密钥不会存进去；语音缓存和收藏的语音也不存，需要时重新生成。')}
-        ${st.enabled ? `<div class="setting-row"><span class="row-text"><strong data-sync-state>${esc(state)}</strong>${remote ? `<small>${esc(remote)}</small>` : ''}</span>${btn('sync-now', icon('refresh') + '立即同步', 'chip-button', st.busy || !st.available ? 'disabled' : '')}</div>` : ''}</div>`
+        ${st.enabled ? `<div class="setting-row"><span class="row-text"><strong data-sync-state>${esc(state)}</strong>${remote ? `<small>${esc(remote)}</small>` : ''}</span>${btn('sync-now', icon('refresh') + '立即同步', 'chip-button', st.busy || !st.available ? 'disabled' : '')}</div>` : ''}
+        ${st.available ? `<div class="setting-row"><span class="row-text"><strong>删除酒馆里的那份</strong><small>只删酒馆里存的，这台设备上的不动</small></span>${btn('sync-clear', icon('trash') + '删除', 'chip-button', st.busy ? 'disabled' : '')}</div>` : ''}</div>`
       ;
+  }
+  async function clearTavernCopy() {
+    try { const n = await api.clearSyncFiles(); ctx.notify(n ? '酒馆里的那份已删除' : '酒馆里没有存过'); } catch (error) { ctx.notify(error.message, {error: true}); }
+    await render();
   }
   v.onSync = () => { if (!appearance && !check && !backup && !restore) render().catch(() => {}); };
 
@@ -159,7 +164,13 @@ export function settingsApp(ctx) {
       if (key === 'glyph') appearance.icons[el.dataset.iconApp] = el.value === 'default' ? null : {kind: 'glyph', key: el.value};
       return;
     }
-    if (key === 'syncEnabled') { api.saveSync({enabled: el.checked}); await render(); return; }
+    if (key === 'syncEnabled') {
+      api.saveSync({enabled: el.checked});
+      await render();
+      // Off: the copy in the tavern stays unless it is deleted too.
+      if (!el.checked && api.syncStatus?.()?.available && await ctx.confirm('也删掉酒馆里的那份吗？', '关掉后小手机不再往酒馆存。酒馆里已经存的聊天记录、朋友圈、备忘录和相册还在，别的设备打开同步还能读到。点确定会把它们从酒馆删掉；这台设备上的内容不受影响。')) await clearTavernCopy();
+      return;
+    }
     if (['voiceEnabled', 'floatingEnabled', 'waveformEnabled', 'cacheEnabled', 'wallpaperMotion', 'stripVoice'].includes(key)) api.updateGeneral({[key]: el.checked});
     else if (key === 'drawEnabled') api.saveDraw({enabled: el.checked});
     else if (key === 'drawAuto') api.saveDraw({auto: el.checked});
@@ -237,6 +248,7 @@ export function settingsApp(ctx) {
       case 'lock': ctx.lock(); break;
       case 'self-check': case 'run-check': await runCheck(); break;
       case 'backup': backup = {parts: new Set(Object.keys(api.backupParts()).filter(part => part !== 'keys')), password: '', again: ''}; await render(); break;
+      case 'sync-clear': if (await ctx.confirm('删除酒馆里的那份？', '酒馆里存的聊天记录、朋友圈、备忘录和相册会删掉，别的设备再同步时就读不到了。这台设备上的内容不受影响；同步开着的话，之后会重新存一份。')) await clearTavernCopy(); break;
       case 'sync-now': { const st = await api.syncNow(); const r = st.lastResult || {}; ctx.notify(r.pulled?.length || r.merged?.length ? '已读取别的设备的新内容' + (r.pushed?.length ? '，也保存了这里的改动' : '') : r.pushed?.length ? '已保存到酒馆' : '已经是最新的了'); await render(); break; }
       case 'make-backup':
         await v.busy(el, async () => {
