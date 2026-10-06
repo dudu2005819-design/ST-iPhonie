@@ -483,7 +483,7 @@ export function budgetText(settings, only = null) {
   return ['【tag 长度】',
     `现在用 NovelAI ${n.name}：一张图的正面 tag（场景加上画面里每个角色的，合在一起算）上限约 ${b.limit} token，超出的部分会被截掉、画不出来。`,
     `画风已经占了约 ${head}${looks.length ? `；已登记角色的固定外貌会自动加进去，各占：${looks.join('、')}` : ''}。`,
-    `所以每张图里你写的场景 tag 和角色 tag，加上画面里那几个人的固定外貌，一共还有约 ${left} token，大约 ${tags} 个英文 tag。尽量写满：写到这个数的八九成，把动作、姿势、表情、视线、服装和配饰的细节、光线、镜头、背景都写具体；但不要超过。`].join('\n');
+    `所以每张图里你写的场景 tag 和角色 tag，加上画面里那几个人的固定外貌，一共还有约 ${left} token，大约 ${tags} 个英文 tag。这是上限，不是目标：写准、写具体，画面里有的都写清楚（动作、姿势、表情、视线、服装和配饰、光线、镜头、背景），但不为了凑长度重复、堆近义词或加画面里没有的东西；不要超过。`].join('\n');
 }
 
 /** Prompt entries injected with the story request ('inline' mode only). Keys share the sttts.entry. prefix. */
@@ -596,7 +596,7 @@ export function suggestRequest(settings, {before = []} = {}) {
       : '用英文 danbooru tag，逗号分隔：人数（1girl、2girls 等）、动作、表情、服装、场景、光线、构图。',
     ...peopleRules(settings),
     '不写画师名和质量词。只输出提示词，不要思考过程、解释、标题或任何标签。',
-    ...(n => n ? [`现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。尽量写满到八九成，把细节写具体，但不要超过。`] : [])(gpt ? null : budgetNumbers(settings))
+    ...(n => n ? [`现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。这是上限，不是目标：写准、写具体，画面里有的都写清楚（动作、姿势、表情、视线、服装和配饰、光线、镜头、背景），但不为了凑长度重复、堆近义词或加画面里没有的东西；不要超过。`] : [])(gpt ? null : budgetNumbers(settings))
   ].join('\n');
   const story = before.length ? before.map(m => `${m.name}：${m.text}`).join('\n') : '（还没有剧情）';
   return [{role: 'system', content: system}, {role: 'user', content: `【最近的剧情】\n${story}\n\n只输出提示词：`}];
@@ -627,7 +627,7 @@ export function writeRequest(settings, {idea = '', cast = []} = {}) {
     '用户写的可能是中文、可能很短：按这个意思补成一幅完整、有画面感的图，没说的细节你来定，但不要改掉想要的东西。',
     ...peopleRules(settings, cast),
     '不写画师名和质量词。只输出提示词，不要思考过程、解释、标题或任何标签。',
-    n ? `现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。尽量写满到八九成，把细节写具体，但不要超过。` : ''
+    n ? `现在用 NovelAI ${n.name}，上限约 ${n.limit} token，画风已占约 ${n.head}，这一行还能写约 ${n.left} token（大约 ${n.tags} 个 tag）。这是上限，不是目标：写准、写具体，画面里有的都写清楚（动作、姿势、表情、视线、服装和配饰、光线、镜头、背景），但不为了凑长度重复、堆近义词或加画面里没有的东西；不要超过。` : ''
   ].filter(Boolean).join('\n');
   return [{role: 'system', content: system}, {role: 'user', content: `想画的：${String(idea).trim()}\n\n只输出提示词：`}];
 }
@@ -650,8 +650,14 @@ export function readSuggestion(settings, text) {
 }
 /** How long the answer may be: room for the whole budget of tags (a few hundred tokens otherwise). */
 export function promptLength(settings) {
+  // Room for the whole budget of tags, and for a model that thinks first (its thinking counts toward the limit too).
   const n = settings.draw?.engine === 'gpt' ? null : budgetNumbers(settings);
-  return n ? Math.min(2400, Math.max(400, Math.round(n.left * 1.4) + 120)) : 400;
+  return n ? Math.min(6000, Math.round(n.left * 1.5) + 1500) : 1500;
+}
+/** The follow-up asking for a fuller line: what it holds now and how much room is left. */
+export function fillUpRequest(prompt, {line, people = [], used, left, tags}) {
+  return [...prompt, {role: 'assistant', content: line + (people.length ? `\n人物：${people.join('、')}` : '')},
+    {role: 'user', content: `这一行现在约 ${used} token，离上限还差约 ${left - used} token（大约 ${tags} 个 tag）。保留上面所有内容，再补充更多具体的细节：服装和配饰的细节、发型、表情和视线、姿势和手的动作、背景里的物件、光线和色调、镜头和构图。只补和这个画面相符、想法或剧情里有依据（或能合理推出）的东西；不重复已有的 tag，不堆近义词，不加画面里没有的人和物。写到上限的八九成，但不要超过。输出扩写后的完整一行${people.length ? '，最后一行照旧写「人物：…」' : ''}，不要解释。`}];
 }
 /** The prompt line out of a reply: thinking blocks, tags, code fences and labels taken out. */
 export function cleanSuggestion(text) {

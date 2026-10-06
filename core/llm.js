@@ -52,7 +52,7 @@ export function asMessages(prompt) {
 
 export function chatBody(text, prompt, responseLength) {
   if (!text.model) throw Error('请先在「引擎 → 文字模型」里填写模型名');
-  return {model: text.model, messages: asMessages(prompt), temperature: text.temperature, max_tokens: Math.min(text.maxTokens, responseLength || text.maxTokens), stream: false};
+  return {model: text.model, messages: asMessages(prompt), temperature: text.temperature, max_tokens: responseLength || text.maxTokens, stream: false};
 }
 
 /** The reply text of a Chat Completions answer (reasoning kept apart by the provider is left out). */

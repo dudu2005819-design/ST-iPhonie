@@ -404,7 +404,7 @@ export function enginesApp(ctx) {
           <div class="combo-menu model-list" data-model-list ${models.length ? '' : 'hidden'}>${models.map(m => `<button type="button" class="combo-chip" data-action="text-pick" data-model="${esc(m)}" aria-pressed="${m === t.model}">${esc(m)}</button>`).join('')}</div>
           <p class="hint" data-text-status></p>
           ${field('温度', input('text-temperature', t.temperature, 'number', 'min="0" max="2" step="0.05"'), '越高越随性，越低越稳定。0.7–1 比较常用。')}
-          ${field('最长回复（tokens）', input('text-maxTokens', t.maxTokens, 'number', 'min="64" max="32000" step="1"'), '一次回复最多写多少。聊天和电话用不了多少，配图规划会按需要取更小的值。')}
+          ${field('最长回复（tokens）', input('text-maxTokens', t.maxTokens, 'number', 'min="64" max="32000" step="1"'), '一次回复最多写多少，聊天、电话、朋友圈用这个。帮我写、从剧情生成和配图规划按各自需要的长度来（够写到 NovelAI 的上限，也给会先思考的模型留出余量）。')}
         </div>` : '')
       + `<div class="savebar"><span class="save-state" data-save-state>${dirty ? '未保存' : '已保存'}</span>${btn('save-text', '保存', 'primary')}</div>`);
   }

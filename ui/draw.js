@@ -329,7 +329,7 @@ export function drawApp(ctx) {
           prompt = r.prompt;
           const added = addPeople(r.people);
           render();
-          ctx.notify('写好了，可以再改；不满意再点一次' + (added.length ? `。已把${added.join('、')}加进「角色」，外貌会自动带上` : ''));
+          ctx.notify('写好了' + (r.budget ? `（约 ${r.tokens} / ${r.budget} token）` : '') + '，可以再改；不满意再点一次' + (added.length ? `。已把${added.join('、')}加进「角色」，外貌会自动带上` : ''));
         });
         break;
       case 'suggest':
@@ -339,7 +339,7 @@ export function drawApp(ctx) {
           prompt = r.prompt;
           const added = addPeople(r.people);
           render();
-          ctx.notify('已根据最近的剧情写好提示词，可以再改' + (added.length ? `。已把${added.join('、')}加进「角色」` : ''));
+          ctx.notify('已根据最近的剧情写好提示词' + (r.budget ? `（约 ${r.tokens} / ${r.budget} token）` : '') + '，可以再改' + (added.length ? `。已把${added.join('、')}加进「角色」` : ''));
         });
         break;
       case 'pick-style': pickStyle(); break;
