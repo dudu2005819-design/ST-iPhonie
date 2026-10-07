@@ -155,16 +155,16 @@ export function applyDirector(lines, decisions, settings) {
       emotion = UNIVERSAL.has(d.emotion) ? d.emotion : '';
     } else if (engine === 'mimo') {
       const style = P.vocab.MIMO_STYLES.includes(d.style) ? d.style : MIMO_FROM[d.emotion] || '';
-      if (style && !/^\s*[（(]/.test(text)) text = `(${style})${text}`;
+      if (style) text = `(${style})${text}`;
     } else if (engine === 'fish' && model === 's1') {
       const e = FISH_S1_FROM[d.emotion] || '';
-      if (e && P.vocab.FISH_S1_EMOTIONS.includes(e) && !/^\s*\(/.test(text)) text = `(${e}) ${text}`;
+      if (e && P.vocab.FISH_S1_EMOTIONS.includes(e)) text = `(${e}) ${text}`;
     } else if (engine === 'fish') {
       const delivery = validDelivery(d.delivery || (d.emotion === 'neutral' ? '' : d.emotion));
-      if (delivery && !/^\s*\[/.test(text)) text = `[${delivery}] ${text}`;
+      if (delivery) text = `[${delivery}] ${text}`;
     } else if (engine === 'eleven' && /^eleven_v[34]/.test(model)) {
       const delivery = validDelivery(d.delivery || (d.emotion === 'neutral' ? '' : d.emotion));
-      if (delivery && !/^\s*\[/.test(text)) text = `[${delivery}] ${text}`;
+      if (delivery) text = `[${delivery}] ${text}`;
     }
     return {...line, text, emotion};
   });
