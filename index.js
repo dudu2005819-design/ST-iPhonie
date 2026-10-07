@@ -16,10 +16,12 @@ import { createVoiceHost } from './host-voices.js';
 import { createSoundHost } from './host-sounds.js';
 import { renderSounds } from './core/sounds.js';
 import { TIER_NAMES } from './core/novelai.js';
+import { directorMode, buildDirectorPrompt, parseDirectorReply, applyDirector } from './core/director.js';
 const base=new URL('.',import.meta.url),marker=globalThis.crypto?.randomUUID?.()||'unavailable';
-let active=false,hooked=false,settings,cache,player,panel,frame,observer,renderTimer,floating,lineRaf,lineMedia,playbackMessage,selectedMessage,backend,enabling;
+let active=false,hooked=false,settings,cache,player,panel,frame,observer,renderTimer,floating,lineRaf,lineMedia,playbackMessage,selectedMessage,backend,enabling,directorPlayEpoch=0;
 let renderEpoch=0,pictures=null,chats=null,momentsHost=null,appsHost=null,callHost=null,memoryHost=null,voiceHost=null,soundHost=null,pendingDraw=null,legacy=false;
-const listeners=[],prompts=new Set();
+const listeners=[],prompts=new Set(),directorMemo=new Map(),directorJobs=new Map();
+let directorScope='';
 // Every copy of the plugin that loads adds its folder here, so the self-check can tell when it is installed twice.
 (globalThis.__stIphonieCopies??=new Set()).add(decodeURIComponent(base.pathname.replace(/\/$/,'').split('/').pop()));
 // The latest notices and errors, for the self-check.
@@ -107,10 +109,45 @@ function speakers(){const ctx=context(),names=new Set(),add=n=>{if(n&&String(n).
 function inject(type,options,dryRun){clearPrompts();if(!active)return;const only=speakers();for(const p of [...(voiceOn()?promptPlan(settings,modelRules(settings,only),only):[]),...drawPromptPlan(settings,undefined,only),...(chats?.bringPlan(typeof type==='string'?type:'',dryRun===true)||[]),...(memoryHost?.storyPlan()||[]),...(soundHost?.promptPlan()||[])]){context().setExtensionPrompt(p.key,p.text,p.position,p.depth,false,p.role);prompts.add(p.key);}}
 function persist(next){return backend.save(next);}
 const voiceOn=()=>settings?.general?.voiceEnabled!==false;
-function storeSettings(next){const voiced=voiceOn(),sounded=soundsOn();settings=next;context().extensionSettings[NAMESPACE]=structuredClone(next);context().saveSettingsDebounced();if(active){memoryHost?.refreshStory();inject();syncFloating();if(voiced!==voiceOn()){player.stop();rerender();}else if(sounded!==soundsOn())rerender();else scheduleRender();}}
+
+// 智能导演只在真正点播放时运行：正文请求不再背每家 TTS 的标签手册。
+// 一条回复里的所有台词一次分析，结果存在本机；重播、刷新后都复用，不重复花文字模型额度。
+const directorStorageKey=()=>settings?.scope?'st-iphonie-director-v1:'+settings.scope:'';
+function directorLoad(){
+ const scope=settings?.scope||'';if(scope===directorScope)return;directorScope=scope;directorMemo.clear();directorJobs.clear();
+ if(!scope)return;try{const rows=JSON.parse(localStorage.getItem(directorStorageKey())||'[]');for(const row of Array.isArray(rows)?rows:[])if(row?.key&&Array.isArray(row.decisions))directorMemo.set(row.key,{decisions:row.decisions,at:Number(row.at)||0});}catch{}
+}
+function directorSave(){
+ const key=directorStorageKey();if(!key)return;try{const rows=[...directorMemo.entries()].map(([k,v])=>({key:k,decisions:v.decisions,at:v.at||Date.now()})).sort((a,b)=>b.at-a.at).slice(0,40);localStorage.setItem(key,JSON.stringify(rows));}catch{}
+}
+function directorRemember(key,decisions){directorMemo.delete(key);directorMemo.set(key,{decisions,at:Date.now()});while(directorMemo.size>40)directorMemo.delete(directorMemo.keys().next().value);directorSave();}
+function shortHash(text){let h=2166136261;for(let i=0;i<String(text).length;i++){h^=String(text).charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
+function directorKey(snap,lines){return [snap.chat,snap.id,snap.swipe??'',shortHash(snap.raw),shortHash(lines.map(l=>l.role+'|'+l.text).join('\n'))].join(':');}
+function previousUser(snap){const chat=context()?.chat||[];for(let i=snap.id-1;i>=0&&i>=snap.id-8;i--){const m=chat[i];if(m?.is_user)return String(m.mes||'');}return '';}
+function directorProfiles(lines){
+ const ctx=context(),names=[...new Set(lines.map(l=>l.role).filter(Boolean))].slice(0,4),out=[];
+ for(const name of names){const card=ctx?.characters?.find?.(x=>x?.name===name);if(!card)continue;const text=[card.description,card.personality].filter(Boolean).join('\n').trim();if(text)out.push('【'+name+'】\n'+text.slice(0,1200));}
+ return out.join('\n\n');
+}
+async function directedStoryLines(snap,lines){
+ if(!directorMode(settings))return lines;
+ directorLoad();const key=directorKey(snap,lines),cached=directorMemo.get(key);let decisions=cached?.decisions;
+ if(!decisions){
+  let job=directorJobs.get(key);
+  if(!job){job=(async()=>{
+    const prompt=buildDirectorPrompt({message:snap.raw,previousUser:previousUser(snap),profiles:directorProfiles(lines),lines});
+    const raw=await backend.generateText(context(),{prompt,trimNames:false,responseLength:Math.min(2800,Math.max(800,500+lines.length*180))});
+    const parsed=parseDirectorReply(raw,lines);directorRemember(key,parsed);return parsed;
+   })().finally(()=>directorJobs.delete(key));directorJobs.set(key,job);}
+  try{decisions=await job;}catch(error){remember('智能导演失败：'+(error?.message||error),'error');notice('智能导演这次没成功，已让语音模型自行判断');return lines.map(l=>({...l,emotion:String(l.emotion||'').toLowerCase()==='auto'?'':l.emotion}));}
+ }
+ return applyDirector(lines,decisions,settings);
+}
+
+function storeSettings(next){const voiced=voiceOn(),sounded=soundsOn(),oldScope=settings?.scope;settings=next;if(oldScope!==settings?.scope){directorScope='';directorLoad();}context().extensionSettings[NAMESPACE]=structuredClone(next);context().saveSettingsDebounced();if(active){memoryHost?.refreshStory();inject();syncFloating();if(voiced!==voiceOn()){player.stop();rerender();}else if(sounded!==soundsOn())rerender();else scheduleRender();}}
 function currentMessage(id){const ctx=context(),message=ctx.chat[id];if(!message||message.is_user||message.is_system)return null;return {message,chat:ctx.getCurrentChatId?.()??ctx.chatId,id,raw:message.mes,swipe:message.swipe_id};}
 function unchanged(snap){const now=currentMessage(snap.id);return active&&now?.message===snap.message&&now.chat===snap.chat&&now.raw===snap.raw&&now.swipe===snap.swipe;}
-function playMessage(id,index){const snap=currentMessage(id);if(!snap)return;const current=player.queue[player.index];if(index!==undefined&&playbackMessage&&unchanged(playbackMessage)&&playbackMessage.id===id&&current?.uiIndex===index&&['playing','generating','paused'].includes(player.phase)){player.toggle();return;}selectedMessage=snap;playbackMessage=snap;const lines=parsed(snap.raw).lines.map((line,uiIndex)=>({...line,uiIndex}));if(index!==undefined&&!lines[index]){healed.delete(id);redrawMessage(id,snap.message);scheduleRender();notice('这句台词和消息内容对不上了，已经重新画好，请再点一次');return;}player.start(index===undefined?lines:lines[index]?[lines[index]]:[],()=>unchanged(snap));}
+async function playMessage(id,index){const snap=currentMessage(id);if(!snap)return;const current=player.queue[player.index];if(index!==undefined&&playbackMessage&&unchanged(playbackMessage)&&playbackMessage.id===id&&current?.uiIndex===index&&['playing','generating','paused'].includes(player.phase)){player.toggle();return;}const epoch=++directorPlayEpoch;selectedMessage=snap;playbackMessage=snap;let lines=parsed(snap.raw).lines.map((line,uiIndex)=>({...line,uiIndex}));if(index!==undefined&&!lines[index]){healed.delete(id);redrawMessage(id,snap.message);scheduleRender();notice('这句台词和消息内容对不上了，已经重新画好，请再点一次');return;}lines=await directedStoryLines(snap,lines);if(epoch!==directorPlayEpoch||!unchanged(snap))return;player.start(index===undefined?lines:lines[index]?[lines[index]]:[],()=>unchanged(snap));}
 function playSelected(){if(selectedMessage&&unchanged(selectedMessage))return playMessage(selectedMessage.id);const chat=context().chat;for(let id=chat.length-1;id>=0;id--){const snap=currentMessage(id);if(snap&&parsed(snap.raw).lines.length)return playMessage(id);}notice('当前聊天还没有可朗读的台词');}
 function status(value){try{soundHost?.voice(value,playbackMessage,playbackMessage?parsed(playbackMessage.raw).lines:[]);}catch{}floating?.update(value);const label=document.querySelector('#sttts-extension-entry .sttts-status');if(label)label.textContent=value.message;const toggle=document.querySelector('#sttts-toggle');if(toggle){toggle.textContent=value.phase==='paused'?'继续':'暂停';toggle.disabled=!['playing','generating','paused'].includes(value.phase);}const stop=document.querySelector('#sttts-stop');if(stop)stop.disabled=['idle','error'].includes(value.phase);frame?.contentWindow?.stTtsUpdate?.(value);if(value.phase==='error'&&!panel?.open)notice(value.message);scheduleRender();}
 // A reply whose voice lines were not turned into waves when it was first drawn (seen once after a generation) is redrawn once.
@@ -301,9 +338,9 @@ async function enableInternal(){if(active)return;const ctx=context();// generate
  const subscribe=(name,fn)=>{if(!name)return;ctx.eventSource.on(name,fn);listeners.push([ctx.eventSource,name,fn]);};subscribe(ctx.eventTypes.GENERATION_AFTER_COMMANDS,async(type,options,dryRun)=>{try{await memoryHost?.storyReady();}catch{}inject(type,options,dryRun);});
  // Each new story reply counts toward automatic 朋友圈 posts (off unless the user turns it on).
  subscribe(ctx.eventTypes.MESSAGE_RECEIVED,id=>{soundHost?.received(id??(context()?.chat||[]).length-1);tagSpeakers((context()?.chat||[]).slice(-1));voiceAhead((context()?.chat||[]).slice(-1));momentsHost?.storyReplied();callHost?.storyReplied();});subscribe(ctx.eventTypes.CHAT_CHANGED,spaceChanged);spaceChanged();subscribe(ctx.eventTypes.CHAT_CHANGED,()=>soundHost?.chatChanged());soundHost.chatChanged();for(const event of ['MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],id=>soundHost?.messageChanged(event==='MESSAGE_DELETED'?undefined:id));
- for(const event of ['CHAT_CHANGED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],()=>{player.stop('消息已变化');scheduleRender();});for(const event of ['CHARACTER_MESSAGE_RENDERED','MESSAGE_RECEIVED'])subscribe(ctx.eventTypes[event],scheduleRender);subscribe(ctx.eventTypes.CHARACTER_MESSAGE_RENDERED,id=>{soundHost?.rendered(id);pictures?.autoPictures(Number(id)).catch(e=>notice(e.message));});
+ for(const event of ['CHAT_CHANGED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],()=>{directorPlayEpoch++;directorJobs.clear();player.stop('消息已变化');scheduleRender();});for(const event of ['CHARACTER_MESSAGE_RENDERED','MESSAGE_RECEIVED'])subscribe(ctx.eventTypes[event],scheduleRender);subscribe(ctx.eventTypes.CHARACTER_MESSAGE_RENDERED,id=>{soundHost?.rendered(id);pictures?.autoPictures(Number(id)).catch(e=>notice(e.message));});
  document.addEventListener('click',click,true);document.addEventListener('keydown',keyUnlock,true);mountEntry();syncFloating();observer=new MutationObserver(chatChanged);const chat=document.querySelector('#chat');if(chat)observer.observe(chat,{childList:true,subtree:true});inject();rerender();}
 export function enable(){if(enabling)return enabling;enabling=enableInternal().finally(()=>{enabling=null;});return enabling;}
-export async function disable(){if(enabling)await enabling;if(!active)return;active=false;renderEpoch++;cancelAnimationFrame(lineRaf);lineMedia?.removeEventListener('change',animateLines);document.removeEventListener('visibilitychange',animateLines);playbackMessage=selectedMessage=null;healed.clear();player.stop();clearPrompts();for(const [source,event,fn] of listeners)source.removeListener(event,fn);listeners.length=0;observer?.disconnect();clearTimeout(renderTimer);renderTimer=0;document.removeEventListener('click',click,true);document.removeEventListener('keydown',keyUnlock,true);document.removeEventListener('visibilitychange',flushSync);globalThis.window?.removeEventListener?.('resize',panelResized);document.querySelector('#sttts-extension-entry')?.remove();floating?.destroy();floating=null;document.querySelectorAll('[data-sttts-owned="toolbar"]').forEach(el=>el.remove());panel?.remove();panel=frame=null;delete globalThis.__stIphoniePanelBridge;pictures=null;chats=null;momentsHost=null;appsHost=null;callHost?.dispose();callHost=null;memoryHost?.close();memoryHost=null;voiceHost=null;soundHost?.close();soundHost=null;pendingDraw=null;await backend.close();rerender();}
+export async function disable(){if(enabling)await enabling;if(!active)return;active=false;renderEpoch++;cancelAnimationFrame(lineRaf);lineMedia?.removeEventListener('change',animateLines);document.removeEventListener('visibilitychange',animateLines);playbackMessage=selectedMessage=null;healed.clear();directorPlayEpoch++;directorJobs.clear();player.stop();clearPrompts();for(const [source,event,fn] of listeners)source.removeListener(event,fn);listeners.length=0;observer?.disconnect();clearTimeout(renderTimer);renderTimer=0;document.removeEventListener('click',click,true);document.removeEventListener('keydown',keyUnlock,true);document.removeEventListener('visibilitychange',flushSync);globalThis.window?.removeEventListener?.('resize',panelResized);document.querySelector('#sttts-extension-entry')?.remove();floating?.destroy();floating=null;document.querySelectorAll('[data-sttts-owned="toolbar"]').forEach(el=>el.remove());panel?.remove();panel=frame=null;delete globalThis.__stIphoniePanelBridge;pictures=null;chats=null;momentsHost=null;appsHost=null;callHost?.dispose();callHost=null;memoryHost?.close();memoryHost=null;voiceHost=null;soundHost?.close();soundHost=null;pendingDraw=null;await backend.close();rerender();}
 export const dispose=disable;
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>enable().catch(e=>notice(e.message)),{once:true});else enable().catch(e=>notice(e.message));
