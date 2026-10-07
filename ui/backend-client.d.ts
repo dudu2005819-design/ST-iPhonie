@@ -72,6 +72,8 @@ export interface Preset {
     id: string;
     name: string;
     format: string;
+    /** Smart director keeps vendor emotion/tag manuals out of the story prompt; inline is the original behaviour. */
+    deliveryMode?: 'director' | 'inline';
     injection: Injection;
     entries: PresetEntry[];
 }
