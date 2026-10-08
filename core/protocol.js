@@ -58,7 +58,7 @@ function recoverOpenLines(message,found,excluded){
 // Some relays strip both XML wrapper tags before the reply reaches the stored message, leaving only
 // “译文”角色|auto|原文. Recover only the director placeholder form, and only when 原文 exactly repeats the quote.
 function recoverBareAutoLines(message,found,excluded){
- const out=[];const re=/“([^“”\n]{1,2000})”\s*([^\n|<>]{1,100})\|auto\|/g;
+ const out=[];const re=/“([^“”\n]{1,2000})”\s*([^\n|<>]{1,100})\|\s*auto\s*\|/gi;
  for(const m of message.matchAll(re)){
   const start=m.index,body=start+m[0].length,translation=decodeText(m[1]).trim(),role=decodeText(m[2]).trim();
   if(!translation||!role||role.length>100||isPlaceholderRole(role))continue;
