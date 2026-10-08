@@ -55,12 +55,32 @@ function recoverOpenLines(message,found,excluded){
  }
  return out;
 }
+// Some relays strip both XML wrapper tags before the reply reaches the stored message, leaving only
+// “译文”角色|auto|原文. Recover only the director placeholder form, and only when 原文 exactly repeats the quote.
+function recoverBareAutoLines(message,found,excluded){
+ const out=[];const re=/“([^“”\n]{1,2000})”\s*([^\n|<>]{1,100})\|auto\|/g;
+ for(const m of message.matchAll(re)){
+  const start=m.index,body=start+m[0].length,translation=decodeText(m[1]).trim(),role=decodeText(m[2]).trim();
+  if(!translation||!role||role.length>100||isPlaceholderRole(role))continue;
+  if(found.some(l=>start<l.end&&body>l.start)||excluded.some(([a,b])=>start<b&&body>a))continue;
+  let take=-1;
+  if(message.startsWith(translation,body))take=translation.length;
+  else{
+   const raw=message.slice(body,Math.min(message.length,body+Math.max(translation.length*3,translation.length+80)));
+   const lineEnd=raw.search(/\r?\n/),candidate=(lineEnd<0?raw:raw.slice(0,lineEnd)).trim();
+   if(decodeText(candidate)===translation)take=(lineEnd<0?raw.length:lineEnd);
+  }
+  if(take<0)continue;
+  out.push({start,end:body+take,translation,role,emotion:'auto',text:translation});
+ }
+ return out;
+}
 export function parseDialogue(message,format=DEFAULT_FORMAT){const {literals,names}=compileFormat(format);message=String(message);if(message.length>500000)return [];
 // A straight quote right outside a curly one ("“你好”"<tts>…) counts as a second curly quote. Same length, so positions hold.
 if(literals[0]==='“')message=message.replace(/"(?=“)/g,'“').replace(/(?<=”)"/g,'”');
 const family=tagFamily(format);if(family)message=repaired(message);
 const excluded=codeSpans(message),found=exactLines(message,literals,names,excluded);
-if(!family)return found;const loose=looseLines(message,found,excluded),recovered=recoverOpenLines(message,[...found,...loose],excluded);return [...found,...loose,...recovered].sort((a,b)=>a.start-b.start);}
+if(!family)return found;const loose=looseLines(message,found,excluded),base=[...found,...loose],recovered=recoverOpenLines(message,base,excluded),bare=recoverBareAutoLines(message,[...base,...recovered],excluded);return [...base,...recovered,...bare].sort((a,b)=>a.start-b.start);}
 /** Voice tags in a reply that were not read as lines (lines: what was read), each with why, for the hint under the
  *  reply and the self-check. */
 export function dialogueProblems(message,lines=[]){const text=String(message);if(!/<tts\b/i.test(text)||text.length>500000)return [];const fixed=repaired(text.replace(/"(?=“)/g,'“').replace(/(?<=”)"/g,'”')),excluded=codeSpans(fixed),problems=[];
