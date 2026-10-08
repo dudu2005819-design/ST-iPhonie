@@ -134,6 +134,9 @@ export class DialoguePlayer {
   this.controller = null;
   this.valid = () => true;
   this.played = new Set();
+  // Rich director requests use native per-engine prosody tags. If one particular rich request is rejected,
+  // remember it for this page session and use the untouched line immediately on later plays.
+  this.richFailures = new Set();
   this.volume = volumeValue(sink.getVolume?.() ?? 1);
   this.clearMetadata();
  }
@@ -160,7 +163,14 @@ export class DialoguePlayer {
  async lineKey(line) {
   const s = this.settings(), route = s.routes.find(r => r.name === line.role);
   if (!route) return null;
-  return requestHash(buildRequest(route.engine, s.connections[route.engine], { ...route, language: route.language || s.general.defaultLanguage }, line, this.providers.references));
+  const effective = { ...route, language: route.language || s.general.defaultLanguage };
+  const rich = buildRequest(route.engine, s.connections[route.engine], effective, line, this.providers.references);
+  const richKey = await requestHash(rich);
+  if (line?.directorRich && line.fallbackText !== undefined && this.richFailures.has(richKey)) {
+   const safeLine = { ...line, text: line.fallbackText, emotion: line.fallbackEmotion || '', directorRich: false };
+   return requestHash(buildRequest(route.engine, s.connections[route.engine], effective, safeLine, this.providers.references));
+  }
+  return richKey;
  }
  async lineState(line) {
   try {
@@ -220,7 +230,7 @@ export class DialoguePlayer {
   try {
    while (this.index < this.queue.length) {
     if (!this.canContinue(epoch)) return;
-    const s = this.settingsOverride || this.settings(), line = this.queue[this.index];
+    const s = this.settingsOverride || this.settings(); let line = this.queue[this.index];
     const route = s.routes.find(r => r.name === line.role);
     this.line = line;
     this.speaker = line.role;
@@ -241,19 +251,44 @@ export class DialoguePlayer {
     }
     this.pending = null;
     const effective = { ...structuredClone(route), language: route.language || s.general.defaultLanguage, model: route.model || s.connections[route.engine].model };
-    const request = buildRequest(route.engine, s.connections[route.engine], effective, line, this.providers.references);
-    const key = await requestHash(request);
+    let request = buildRequest(route.engine, s.connections[route.engine], effective, line, this.providers.references);
+    let key = await requestHash(request);
+    const richKey = key;
+    // A rich request that already failed on this page goes straight to the untouched compatibility version.
+    if (line.directorRich && line.fallbackText !== undefined && this.richFailures.has(richKey)) {
+     line = { ...line, text: line.fallbackText, emotion: line.fallbackEmotion || '', directorRich: false };
+     request = buildRequest(route.engine, s.connections[route.engine], effective, line, this.providers.references);
+     key = await requestHash(request);
+     this.line = line;
+    }
     if (!this.canContinue(epoch)) return;
     this.requestKey = key;
     const cacheEpoch = this.cache.epoch;
     let blob = s.general.cacheEnabled ? await this.cache.get(key) : null;
     if (!this.canContinue(epoch)) return;
-    const fromCache = !!blob;
+    let fromCache = !!blob;
     this.emit(this.phase === 'paused' ? 'paused' : 'generating', (fromCache ? '读取缓存 · ' : '正在生成 · ') + line.role);
     if (!blob) {
-     blob = await this.providers.synthesize(request, signal);
+     try {
+      blob = await this.providers.synthesize(request, signal);
+     } catch (error) {
+      if (signal.aborted || !line.directorRich || line.fallbackText === undefined) throw error;
+      // Rich prosody must never make a previously-working voice unusable: retry once with the exact original wording.
+      this.richFailures.add(richKey);
+      line = { ...line, text: line.fallbackText, emotion: line.fallbackEmotion || '', directorRich: false };
+      this.line = line;
+      request = buildRequest(route.engine, s.connections[route.engine], effective, line, this.providers.references);
+      key = await requestHash(request);
+      this.requestKey = key;
+      blob = s.general.cacheEnabled ? await this.cache.get(key) : null;
+      fromCache = !!blob;
+      if (!blob) {
+       this.emit(this.phase === 'paused' ? 'paused' : 'generating', '兼容模式重试 · ' + line.role);
+       blob = await this.providers.synthesize(request, signal);
+      }
+     }
      if (!this.canContinue(epoch)) return;
-     if (this.settings().general.cacheEnabled) await this.cache.put(key, blob, cacheEpoch, {
+     if (this.settings().general.cacheEnabled && !fromCache) await this.cache.put(key, blob, cacheEpoch, {
       line: copyLine(line), route: { name: effective.name, engine: effective.engine, model: effective.model, voice: effective.voice }, requestKey: key
      });
     }
