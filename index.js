@@ -16,7 +16,7 @@ import { createVoiceHost } from './host-voices.js';
 import { createSoundHost } from './host-sounds.js';
 import { renderSounds } from './core/sounds.js';
 import { TIER_NAMES } from './core/novelai.js';
-import { directorMode, buildDirectorPrompt, parseDirectorReply } from './core/director.js';
+import { directorMode, buildDirectorPrompt, parseDirectorReply, applyDirector } from './core/director.js';
 const base=new URL('.',import.meta.url),marker=globalThis.crypto?.randomUUID?.()||'unavailable';
 let active=false,hooked=false,settings,cache,player,panel,frame,observer,renderTimer,floating,lineRaf,lineMedia,playbackMessage,selectedMessage,backend,enabling,directorPlayEpoch=0;
 let renderEpoch=0,pictures=null,chats=null,momentsHost=null,appsHost=null,callHost=null,memoryHost=null,voiceHost=null,soundHost=null,pendingDraw=null,legacy=false;
@@ -122,7 +122,7 @@ function directorSave(){
 }
 function directorRemember(key,decisions){directorMemo.delete(key);directorMemo.set(key,{decisions,at:Date.now()});while(directorMemo.size>40)directorMemo.delete(directorMemo.keys().next().value);directorSave();}
 function shortHash(text){let h=2166136261;for(let i=0;i<String(text).length;i++){h^=String(text).charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
-function directorKey(snap,lines){return ['fish-rich-v2',snap.chat,snap.id,snap.swipe??'',shortHash(snap.raw),shortHash(lines.map(l=>l.role+'|'+l.text).join('\n'))].join(':');}
+function directorKey(snap,lines){const p=settings?.presets?.find(x=>x.id===settings.activePreset)||{};return ['human-v3',p.performanceLevel||'rich',p.performanceCues!==false?'cues':'plain',snap.chat,snap.id,snap.swipe??'',shortHash(snap.raw),shortHash(lines.map(l=>l.role+'|'+l.text).join('\n'))].join(':');}
 function previousUser(snap){const chat=context()?.chat||[];for(let i=snap.id-1;i>=0&&i>=snap.id-8;i--){const m=chat[i];if(m?.is_user)return String(m.mes||'');}return '';}
 function directorProfiles(lines){
  const ctx=context(),names=[...new Set(lines.map(l=>l.role).filter(Boolean))].slice(0,4),out=[];
@@ -136,7 +136,8 @@ async function directedStoryLines(snap,lines){
   let job=directorJobs.get(key);
   if(!job){job=(async()=>{
     const directedInput=lines.map(line=>{const route=settings.routes.find(r=>r.name===line.role);return {...line,engine:route?.engine||'',model:route?.model||settings.connections?.[route?.engine]?.model||''};});
-    const prompt=buildDirectorPrompt({message:snap.raw,previousUser:previousUser(snap),profiles:directorProfiles(lines),lines:directedInput});
+    const preset=settings?.presets?.find(p=>p.id===settings.activePreset)||{};
+    const prompt=buildDirectorPrompt({message:snap.raw,previousUser:previousUser(snap),profiles:directorProfiles(lines),lines:directedInput,performanceLevel:preset.performanceLevel||'rich',performanceCues:preset.performanceCues!==false});
     // The director is optional. Never let a slow custom LLM block a tap for minutes.
     const timeout=new Promise((_,reject)=>setTimeout(()=>reject(Error('智能导演分析超时')),15000));
     const raw=await Promise.race([
@@ -147,34 +148,10 @@ async function directedStoryLines(snap,lines){
    })().finally(()=>directorJobs.delete(key));directorJobs.set(key,job);}
   try{decisions=await job;}catch(error){remember('智能导演失败：'+(error?.message||error),'error');return lines.map(l=>({...l,emotion:String(l.emotion||'').toLowerCase()==='auto'?'':l.emotion}));}
  }
- // Stable rich mode: keep spoken text byte-for-byte unchanged. For Fish S2/S2.1, however, use exactly one
- // leading natural-language delivery tag via the existing emotion field. This is the engine's own supported path and
- // gives much richer acting than a single "happy/sad/calm" label without reintroducing risky mid-line pause/sound tags.
- const fishFallback={
-  neutral:'natural, conversational, expressive',
-  calm:'warm, relaxed, conversational',
-  happy:'bright, warm, lightly animated',
-  sad:'soft, subdued, emotionally heavy',
-  angry:'cold, clipped, controlled anger',
-  fearful:'tense, uneasy, slightly breathless',
-  disgusted:'cold, restrained, faintly disdainful',
-  surprised:'caught off guard, alert, quick'
- };
- const s1Emotion={neutral:'calm',calm:'calm',happy:'happy',sad:'sad',angry:'angry',fearful:'scared',disgusted:'disgusted',surprised:'surprised'};
- const cleanDelivery=value=>{
-  let text=String(value||'').trim().toLowerCase().replace(/[^a-z ,'-]/g,'').replace(/\s+/g,' ');
-  if(text.length>40)text=text.slice(0,40).replace(/\s+\S*$/,'').replace(/[ ,'-]+$/,'');
-  return /^[a-z][a-z ,'-]{1,40}$/.test(text)?text:'';
- };
- return lines.map((line,i)=>{
-  const d=decisions?.[i]||{},emotion=String(d.emotion||'neutral').toLowerCase(),route=settings.routes.find(r=>r.name===line.role),engine=route?.engine||'',model=route?.model||settings.connections?.[engine]?.model||'';
-  let directedEmotion='';
-  if(engine==='fish'&&model!=='s1') directedEmotion=cleanDelivery(d.delivery)||cleanDelivery(fishFallback[emotion])||'natural, conversational';
-  else if(engine==='fish'&&model==='s1') directedEmotion=s1Emotion[emotion]||'calm';
-  else if(engine==='mimo') directedEmotion=String(d.style||'').trim()||({happy:'开心',sad:'悲伤',angry:'愤怒',fearful:'恐惧',disgusted:'冷漠',surprised:'惊讶',calm:'平静'}[emotion]||'');
-  else directedEmotion=emotion&&emotion!=='neutral'?emotion:'';
-  return {...line,text:line.text,emotion:directedEmotion};
- });
+ // One completed director pass is translated into each engine's own supported prosody syntax.
+ // The player carries the untouched original as a fallback and retries automatically if a rich request is rejected.
+ const preset=settings?.presets?.find(p=>p.id===settings.activePreset)||{};
+ return applyDirector(lines,decisions,settings,{performanceLevel:preset.performanceLevel||'rich',performanceCues:preset.performanceCues!==false});
 }
 
 function storeSettings(next){const voiced=voiceOn(),sounded=soundsOn(),oldScope=settings?.scope;settings=next;if(oldScope!==settings?.scope){directorScope='';directorLoad();}context().extensionSettings[NAMESPACE]=structuredClone(next);context().saveSettingsDebounced();if(active){memoryHost?.refreshStory();inject();syncFloating();if(voiced!==voiceOn()){player.stop();rerender();}else if(sounded!==soundsOn())rerender();else scheduleRender();}}
