@@ -45,7 +45,7 @@ function plainSource(text='') {
 }
 
 export function buildDirectorPrompt({message='', previousUser='', profiles='', lines=[]} = {}) {
-  const rows = lines.map((l, i) => `${i}. ${l.role}：${l.text}`).join('\n');
+  const rows = lines.map((l, i) => `${i}. ${l.role}${l.engine ? ` [${l.engine}${l.model ? ' · '+l.model : ''}]` : ''}：${l.text}`).join('\n');
   return [
     '你是中文角色扮演的 TTS 表演导演。你的任务只有一个：判断这些已经写好的台词应该怎么念。不要改剧情、不要改台词。',
     '',
@@ -54,6 +54,9 @@ export function buildDirectorPrompt({message='', previousUser='', profiles='', l
     '- 不要把每句话都演得很重。没有明确强情绪时，宁可克制、自然。',
     '- 呼吸、叹气、轻笑、迟疑和停顿只在真正有表演价值的位置加；通常每句 0–2 个，最多 4 个。',
     '- 不要为了“活人感”机械地每句都叹气、喘息、耳语或笑。',
+    '- Fish Audio S2 / S2.1 角色要充分利用自然语言语气控制：delivery_en 不要只写 happy / sad / calm 这种单一大类，而要把「主情绪 + 说话意图/关系感 + 能量或克制程度」压成 2–5 个英文短词，通常 12–40 个字符。',
+    '- Fish Audio 的表演要饱满但不能夸张：亲密可以是 warm, affectionate, softly amused；嘴硬可以是 restrained, fond, trying to hide it；委屈可以是 hurt, subdued, holding back tears；生气可以是 cold, clipped, controlled anger；疲惫照顾人可以是 gentle, protective, slightly tired。根据剧情选，不要机械套例子。',
+    '- 同一角色连续几句不要全用同一个 delivery_en。情绪可以有惯性，但每句要根据当下动作、潜台词和句式做细微变化，让对话像真人而不是统一播报腔。',
     '- annotated 必须保留原台词的每一个字和标点，唯一允许的改动是插入下面的标记。',
     '',
     '【允许插入的通用标记】',
@@ -62,7 +65,7 @@ export function buildDirectorPrompt({message='', previousUser='', profiles='', l
     '【输出字段】',
     'emotion：只能是 neutral / happy / sad / angry / fearful / disgusted / surprised / calm 之一。',
     'style_zh：给中文语音模型的 1–2 个中文语气词，例如 温柔、无奈、委屈、慵懒、平静；没有必要就空字符串。',
-    'delivery_en：给支持自然语言语气提示的模型，1–6 个英文词，例如 soft, slightly tired；没有必要就空字符串。',
+    'delivery_en：给支持自然语言语气提示的模型。Fish Audio S2 / S2.1 优先写 2–5 个英文短词，尽量同时体现情绪、关系/意图和能量或克制程度，最多 40 个字符；例如 warm, teasing, softly amused / restrained, fond, slightly awkward / cold, clipped, controlled anger。其他模型可以更简短。',
     '',
     '只输出严格 JSON 数组，不要 Markdown，不要解释。每句必须有一项：',
     '[{"id":0,"emotion":"calm","style_zh":"温柔","delivery_en":"soft, slightly tired","annotated":"<breath>原台词<pause=0.30>"}]',
