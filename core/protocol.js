@@ -17,7 +17,7 @@ function codeSpans(message){return [...message.matchAll(/```[\s\S]*?(?:```|$)|~~
 const tagFamily=format=>format.replace(/\s+/g,'')==='“{译文}”<tts>{角色}|{情绪}|{文本}</tts>';
 // Repairs that keep every character in place, so positions found in the repaired text hold in the original:
 // <TTS> in capitals, a full-width ｜ inside a tag, and "…" 「…」 『…』 ＂…＂ around the translation instead of “…”.
-function repaired(message){return message.replace(/<\/?tts\b/gi,m=>m.toLowerCase()).replace(/<tts>[^<]{0,6000}<\/tts>/g,m=>m.replace(/｜/g,'|')).replace(/(["「『＂])([^"「」『』＂“”\n]{1,1000})(["」』＂])(?=<tts>)/g,(m,a,t)=>'“'+t+'”');}
+function repaired(message){return message.replace(/<\s*tts\s*>/gi,'<tts>').replace(/<\s*\/\s*tts\s*>/gi,'</tts>').replace(/<tts>[^<]{0,6000}<\/tts>/g,m=>m.replace(/｜/g,'|')).replace(/(["「『＂])([^"「」『』＂“”\n]{1,1000})(["」』＂])(?=<tts>)/g,(m,a,t)=>'“'+t+'”');}
 function exactLines(message,literals,names,excluded){const result=[];let cursor=0,tries=0;while(cursor<message.length&&result.length<500&&tries++<2000){const start=message.indexOf(literals[0],cursor);if(start<0)break;const hidden=excluded.find(([a,b])=>a<=start&&start<b);if(hidden){cursor=hidden[1];continue;}let at=start+literals[0].length,valid=true,values={};for(let i=0;i<4;i++){const end=message.indexOf(literals[i+1],at);if(end<0){valid=false;break;}values[names[i]]=decodeText(message.slice(at,end));at=end+literals[i+1].length;}if(valid&&message.slice(start+literals[0].length,at).includes(literals[0]))valid=false;cursor=valid?at:start+literals[0].length;if(!valid||excluded.some(([a,b])=>start<b&&at>a)||fields.some(f=>!values[f]?.trim())||values.角色.length>100||values.情绪.length>100||isPlaceholderRole(values.角色))continue;
 // A line quoted twice (““你好””<tts>…) matches from the inner quote: the outer opening quote is left in front and the
 // outer closing one ends the translation. Both belong to the line; quotes around the whole translation are dropped.
@@ -29,12 +29,38 @@ result.push({start:from,end:at,translation:said,role:values.角色.trim(),emotio
 function looseLines(message,found,excluded){const out=[];for(const m of message.matchAll(/<tts>([^<]{1,6000}?)<\/tts>/g)){const at=m.index,end=at+m[0].length;if(found.some(l=>at<l.end&&end>l.start)||excluded.some(([a,b])=>at<b&&end>a))continue;const parts=m[1].split('|');if(parts.length<2||parts.length>3)continue;const role=decodeText(parts[0]).trim(),emotion=parts.length===3?decodeText(parts[1]).trim():'',text=decodeText(parts.at(-1)).trim();if(!role||role.length>100||emotion.length>100||isPlaceholderRole(role)||!text.trim())continue;
 const before=Math.max(0,...found.map(l=>l.end).filter(e=>e<=at),...out.map(l=>l.end)),quoted=/“([^“”]{1,2000})”\s*$/.exec(message.slice(before,at));
 out.push({start:quoted?at-quoted[0].length:at,end,translation:(quoted?decodeText(quoted[1]):text).trim(),role,emotion,text});}return out;}
+// Gemini and some OpenAI-compatible relays occasionally return a nearly-correct tag whose closing </tts> is
+// missing or spaced oddly. The browser then hides <tts> itself but shows "角色|auto|原文" as raw text. Recover only
+// the safe case where the text after the pipes is exactly the immediately preceding quoted translation; this avoids
+// swallowing narration while still restoring the wave button for the common low-token format slip.
+function recoverOpenLines(message,found,excluded){
+ const out=[];const re=/“([^“”\n]{1,2000})”\s*<tts>\s*([^|<\n]{1,100})\|([^|<\n]{0,100})\|/g;
+ for(const m of message.matchAll(re)){
+  const start=m.index,body=start+m[0].length;
+  if(found.some(l=>start<l.end&&body>l.start)||excluded.some(([a,b])=>start<b&&body>a))continue;
+  const translation=decodeText(m[1]).trim(),role=decodeText(m[2]).trim(),emotion=decodeText(m[3]).trim();
+  if(!translation||!role||role.length>100||emotion.length>100||isPlaceholderRole(role))continue;
+  const raw=message.slice(body,Math.min(message.length,body+Math.max(translation.length*3,translation.length+80)));
+  // Prefer literal equality; HTML entities in the spoken text are also accepted after decoding.
+  let take=-1;
+  if(message.startsWith(translation,body))take=translation.length;
+  else{
+   const lineEnd=raw.search(/\r?\n/),candidate=(lineEnd<0?raw:raw.slice(0,lineEnd)).replace(/<\/tts>\s*$/i,'').trim();
+   if(decodeText(candidate)===translation)take=(lineEnd<0?raw.length:lineEnd);
+  }
+  if(take<0)continue;
+  let end=body+take;
+  const close=/^\s*<\/tts>/.exec(message.slice(end));if(close)end+=close[0].length;
+  out.push({start,end,translation,role,emotion,text:translation});
+ }
+ return out;
+}
 export function parseDialogue(message,format=DEFAULT_FORMAT){const {literals,names}=compileFormat(format);message=String(message);if(message.length>500000)return [];
 // A straight quote right outside a curly one ("“你好”"<tts>…) counts as a second curly quote. Same length, so positions hold.
 if(literals[0]==='“')message=message.replace(/"(?=“)/g,'“').replace(/(?<=”)"/g,'”');
 const family=tagFamily(format);if(family)message=repaired(message);
 const excluded=codeSpans(message),found=exactLines(message,literals,names,excluded);
-return family?[...found,...looseLines(message,found,excluded)].sort((a,b)=>a.start-b.start):found;}
+if(!family)return found;const loose=looseLines(message,found,excluded),recovered=recoverOpenLines(message,[...found,...loose],excluded);return [...found,...loose,...recovered].sort((a,b)=>a.start-b.start);}
 /** Voice tags in a reply that were not read as lines (lines: what was read), each with why, for the hint under the
  *  reply and the self-check. */
 export function dialogueProblems(message,lines=[]){const text=String(message);if(!/<tts\b/i.test(text)||text.length>500000)return [];const fixed=repaired(text.replace(/"(?=“)/g,'“').replace(/(?<=”)"/g,'”')),excluded=codeSpans(fixed),problems=[];
