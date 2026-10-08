@@ -644,7 +644,7 @@ export class TTSBackend {
      */
     async generateText(context, request) {
         const text = activeText(this.settings.text);
-        if (text.source === 'custom') return customRequest({ text, key: this.textKeys.get(text.id) || '', prompt: request.prompt, responseLength: request.responseLength });
+        if (text.source === 'custom') { const directed={...text,...(Number.isFinite(Number(request.temperature))?{temperature:Number(request.temperature)}:{}),...(request.thinking==='off'?{thinking:'off'}:{})}; return customRequest({ text:directed, key:this.textKeys.get(text.id)||'', prompt:request.prompt, responseLength:request.responseLength }); }
         if (!context?.generateRaw) throw Error('当前酒馆版本不支持后台生成');
         // The chat-completion request the tavern builds is kept, so an empty answer can be asked again as a stream:
         // "假流式" channels only answer streamed requests, and the tavern's background generation never streams.
