@@ -43,6 +43,16 @@ export function buildRequest(engine,connection,route,line,references=new Map()){
  const lineEmotion=String(line.emotion||'').trim().toLowerCase()==='auto'?'':line.emotion;
  // The 情绪 field becomes the model's own opening tag (Fish, Eleven v3/v4) unless the text already starts with one.
  const request=P.requestPreview(engine,c,route.voice,P.emotionTag(engine,c.model,lineEmotion,line.text),c.model);
+ // Smart director rich mode: Fish S2/S2.1 becomes a little more expressive without changing the saved engine preset.
+ // Keep the lift modest so the same character does not drift between lines; dramatic mode is intentionally stronger.
+ if(engine==='fish'&&c.model!=='s1'&&line.directorRich){
+  const fish=request.body?.provider?.options?.['fish-audio'];
+  if(fish){
+   const level=line.directorLevel||'rich',floorTemp=level==='dramatic'?.86:level==='natural'?.70:.78,floorTopP=level==='dramatic'?.90:level==='natural'?.72:.82;
+   fish.temperature=Math.min(1,Math.max(Number(fish.temperature)||0,floorTemp));
+   fish.top_p=Math.min(1,Math.max(Number(fish.top_p)||0,floorTopP));
+  }
+ }
  if(engine==='fish'&&c.params.references.length){request.body.provider.options['fish-audio'].references=c.params.references.map(r=>{const audio=references.get(r.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择参考音频：'+r.audio);return {audio,text:r.text};});}
  // MiniMax takes a fixed emotion list: Chinese or English words map onto it; anything else lets the model choose.
  if(engine==='mini'&&!request.body.voice_setting.emotion){const emotion=P.miniEmotion(c.model,lineEmotion);if(emotion)request.body.voice_setting.emotion=emotion;else delete request.body.voice_setting.emotion;}
