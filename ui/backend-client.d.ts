@@ -74,6 +74,10 @@ export interface Preset {
     format: string;
     /** Smart director keeps vendor emotion/tag manuals out of the story prompt; inline is the original behaviour. */
     deliveryMode?: 'director' | 'inline';
+    /** Acting intensity used by the smart director. */
+    performanceLevel?: 'natural' | 'rich' | 'dramatic';
+    /** Whether native engine sound cues / pauses may be inserted by the smart director. */
+    performanceCues?: boolean;
     injection: Injection;
     entries: PresetEntry[];
 }
