@@ -273,6 +273,7 @@ export function applyDirector(lines, decisions, settings, options = {}) {
       text,
       emotion,
       directorRich: text !== base || emotion !== (line.emotion || ''),
+      directorLevel: level,
       fallbackText: base,
       fallbackEmotion
     };
