@@ -21,7 +21,7 @@ const base=new URL('.',import.meta.url),marker=globalThis.crypto?.randomUUID?.()
 let active=false,hooked=false,settings,cache,player,panel,frame,observer,renderTimer,floating,lineRaf,lineMedia,playbackMessage,selectedMessage,backend,enabling,directorPlayEpoch=0;
 let renderEpoch=0,pictures=null,chats=null,momentsHost=null,appsHost=null,callHost=null,memoryHost=null,voiceHost=null,soundHost=null,pendingDraw=null,legacy=false;
 const listeners=[],prompts=new Set(),directorMemo=new Map(),directorJobs=new Map(),directorPrewarmTimers=new Map(),directorBackgroundJobs=new Map();
-let directorScope='';
+let directorScope='',directorToast=null;
 // Every copy of the plugin that loads adds its folder here, so the self-check can tell when it is installed twice.
 (globalThis.__stIphonieCopies??=new Set()).add(decodeURIComponent(base.pathname.replace(/\/$/,'').split('/').pop()));
 // The latest notices and errors, for the self-check.
@@ -161,8 +161,14 @@ function preGenerateAudioEnabled(){return preAnalyzeEnabled()&&directorPreset().
 function directorProgressNotice(message,kind='info',timeOut=2600){
  if(directorPreset().preAnalyzeNotify===false)return;
  remember(message,kind==='error'?'error':'notice');
+ try{directorToast?.remove?.();}catch{}directorToast=null;
  const toast=globalThis.toastr?.[kind]||globalThis.toastr?.info;
- if(toast)toast.call(globalThis.toastr,message,'ST-iPhonie',{timeOut,extendedTimeOut:800,progressBar:true});
+ if(toast)try{
+  directorToast=toast.call(globalThis.toastr,message,'ST-iPhonie',{
+   timeOut,extendedTimeOut:timeOut?900:0,progressBar:timeOut>0,closeButton:true,tapToDismiss:timeOut>0,
+   positionClass:'toast-top-center',newestOnTop:true
+  });
+ }catch{}
 }
 function latestAssistantId(){
  const chat=context()?.chat||[];
@@ -193,7 +199,7 @@ function scheduleDirectorPreAnalyze(id,delay=260){
 
   const job=(async()=>{
    const hadAnalysis=directorMemo.has(key);
-   if(!hadAnalysis)directorProgressNotice('🎭 正在分析本条回复的 '+currentLines.length+' 句语气…','info',3200);
+   if(!hadAnalysis)directorProgressNotice('🎭 正在分析本条回复的 '+currentLines.length+' 句语气、停顿和节奏…','info',0);
    let directed;
    try{
     directed=await directedStoryLines(current,currentLines);
@@ -216,7 +222,7 @@ function scheduleDirectorPreAnalyze(id,delay=260){
     scheduleRender();return;
    }
 
-   directorProgressNotice('✅ 语气分析完成 · 正在后台缓存 '+currentLines.length+' 句语音…','success',3600);
+   directorProgressNotice('🔄 语气分析完成 · 正在后台生成 '+currentLines.length+' 句语音缓存…','info',0);
    const valid=()=>{
     const now=currentMessage(n);
     return active&&now?.message===current.message&&now.chat===current.chat&&now.raw===current.raw&&now.swipe===current.swipe;
@@ -230,7 +236,7 @@ function scheduleDirectorPreAnalyze(id,delay=260){
    const extra=result.skipped?(' · '+result.skipped+' 句无音色'):'';
    const bad=result.failed?(' · '+result.failed+' 句失败'):'';
    const kind=result.failed?'warning':'success';
-   directorProgressNotice('🔊 语音缓存完成 · '+usable+'/'+result.total+' 句可直接播放'+extra+bad,kind,result.failed?5000:3500);
+   directorProgressNotice('🔊 全部准备完成 · '+usable+'/'+result.total+' 句可直接播放'+extra+bad,kind,result.failed?6500:6000);
   })().catch(error=>directorProgressNotice('后台配音准备失败：'+(error?.message||error),'error',5000)).finally(()=>directorBackgroundJobs.delete(key));
   directorBackgroundJobs.set(key,job);
  },delay));
@@ -481,6 +487,6 @@ async function enableInternal(){if(active)return;const ctx=context();// generate
  subscribe(ctx.eventTypes.MESSAGE_EDITED,id=>scheduleDirectorPreAnalyze(id,320));for(const event of ['CHARACTER_MESSAGE_RENDERED','MESSAGE_RECEIVED'])subscribe(ctx.eventTypes[event],()=>legacy?legacyVoicePulse():scheduleRender());subscribe(ctx.eventTypes.CHARACTER_MESSAGE_RENDERED,id=>{soundHost?.rendered(id);pictures?.autoPictures(Number(id)).catch(e=>notice(e.message));});
  document.addEventListener('click',click,true);document.addEventListener('keydown',keyUnlock,true);mountEntry();syncFloating();if(!legacy){observer=new MutationObserver(chatChanged);const chat=document.querySelector('#chat');if(chat)observer.observe(chat,{childList:true,subtree:true});}inject();rerender();if(legacy)legacyVoicePulse();}
 export function enable(){if(enabling)return enabling;enabling=enableInternal().finally(()=>{enabling=null;});return enabling;}
-export async function disable(){if(enabling)await enabling;if(!active)return;active=false;renderEpoch++;cancelAnimationFrame(lineRaf);lineMedia?.removeEventListener('change',animateLines);document.removeEventListener('visibilitychange',animateLines);playbackMessage=selectedMessage=null;healed.clear();directorPlayEpoch++;directorJobs.clear();clearDirectorPreAnalyzeTimers();player.stop();clearPrompts();for(const [source,event,fn] of listeners)source.removeListener(event,fn);listeners.length=0;observer?.disconnect();clearTimeout(renderTimer);renderTimer=0;document.removeEventListener('click',click,true);document.removeEventListener('keydown',keyUnlock,true);document.removeEventListener('visibilitychange',flushSync);globalThis.window?.removeEventListener?.('resize',panelResized);document.querySelector('#sttts-extension-entry')?.remove();floating?.destroy();floating=null;document.querySelectorAll('[data-sttts-owned="toolbar"]').forEach(el=>el.remove());panel?.remove();panel=frame=null;delete globalThis.__stIphoniePanelBridge;pictures=null;chats=null;momentsHost=null;appsHost=null;callHost?.dispose();callHost=null;memoryHost?.close();memoryHost=null;voiceHost=null;soundHost?.close();soundHost=null;pendingDraw=null;await backend.close();rerender();}
+export async function disable(){if(enabling)await enabling;if(!active)return;active=false;try{directorToast?.remove?.();}catch{}directorToast=null;renderEpoch++;cancelAnimationFrame(lineRaf);lineMedia?.removeEventListener('change',animateLines);document.removeEventListener('visibilitychange',animateLines);playbackMessage=selectedMessage=null;healed.clear();directorPlayEpoch++;directorJobs.clear();clearDirectorPreAnalyzeTimers();player.stop();clearPrompts();for(const [source,event,fn] of listeners)source.removeListener(event,fn);listeners.length=0;observer?.disconnect();clearTimeout(renderTimer);renderTimer=0;document.removeEventListener('click',click,true);document.removeEventListener('keydown',keyUnlock,true);document.removeEventListener('visibilitychange',flushSync);globalThis.window?.removeEventListener?.('resize',panelResized);document.querySelector('#sttts-extension-entry')?.remove();floating?.destroy();floating=null;document.querySelectorAll('[data-sttts-owned="toolbar"]').forEach(el=>el.remove());panel?.remove();panel=frame=null;delete globalThis.__stIphoniePanelBridge;pictures=null;chats=null;momentsHost=null;appsHost=null;callHost?.dispose();callHost=null;memoryHost?.close();memoryHost=null;voiceHost=null;soundHost?.close();soundHost=null;pendingDraw=null;await backend.close();rerender();}
 export const dispose=disable;
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>enable().catch(e=>notice(e.message)),{once:true});else enable().catch(e=>notice(e.message));
