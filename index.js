@@ -122,7 +122,7 @@ function directorSave(){
 }
 function directorRemember(key,decisions){directorMemo.delete(key);directorMemo.set(key,{decisions,at:Date.now()});while(directorMemo.size>40)directorMemo.delete(directorMemo.keys().next().value);directorSave();}
 function shortHash(text){let h=2166136261;for(let i=0;i<String(text).length;i++){h^=String(text).charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
-function directorKey(snap,lines){const p=settings?.presets?.find(x=>x.id===settings.activePreset)||{};return ['human-v3',p.performanceLevel||'rich',p.performanceCues!==false?'cues':'plain',snap.chat,snap.id,snap.swipe??'',shortHash(snap.raw),shortHash(lines.map(l=>l.role+'|'+l.text).join('\n'))].join(':');}
+function directorKey(snap,lines){const p=settings?.presets?.find(x=>x.id===settings.activePreset)||{};return ['human-v4',p.performanceLevel||'rich',p.performanceCues!==false?'cues':'plain',snap.chat,snap.id,snap.swipe??'',shortHash(snap.raw),shortHash(lines.map(l=>l.role+'|'+l.text).join('\n'))].join(':');}
 function previousUser(snap){const chat=context()?.chat||[];for(let i=snap.id-1;i>=0&&i>=snap.id-8;i--){const m=chat[i];if(m?.is_user)return String(m.mes||'');}return '';}
 function directorProfiles(lines){
  const ctx=context(),names=[...new Set(lines.map(l=>l.role).filter(Boolean))].slice(0,4),out=[];
@@ -135,13 +135,13 @@ async function directedStoryLines(snap,lines){
  if(!decisions){
   let job=directorJobs.get(key);
   if(!job){job=(async()=>{
-    const directedInput=lines.map(line=>{const route=settings.routes.find(r=>r.name===line.role);return {...line,engine:route?.engine||'',model:route?.model||settings.connections?.[route?.engine]?.model||''};});
+    const directedInput=lines.map(line=>{const route=settings.routes.find(r=>r.name===line.role);return {...line,engine:route?.engine||'',model:route?.model||settings.connections?.[route?.engine]?.model||'',language:route?.language||settings.general.defaultLanguage||'zh'};});
     const preset=settings?.presets?.find(p=>p.id===settings.activePreset)||{};
     const prompt=buildDirectorPrompt({message:snap.raw,previousUser:previousUser(snap),profiles:directorProfiles(lines),lines:directedInput,performanceLevel:preset.performanceLevel||'rich',performanceCues:preset.performanceCues!==false});
     // The director is optional. Never let a slow custom LLM block a tap for minutes.
-    const timeout=new Promise((_,reject)=>setTimeout(()=>reject(Error('智能导演分析超时')),15000));
+    const timeout=new Promise((_,reject)=>setTimeout(()=>reject(Error('智能导演分析超时')),30000));
     const raw=await Promise.race([
-      backend.generateText(context(),{prompt,trimNames:false,responseLength:Math.min(2200,Math.max(700,420+lines.length*140))}),
+      backend.generateText(context(),{prompt,trimNames:false,temperature:.45,thinking:'off',responseLength:Math.min(3200,Math.max(1000,650+lines.length*220))}),
       timeout
     ]);
     const parsed=parseDirectorReply(raw,lines);directorRemember(key,parsed);return parsed;
