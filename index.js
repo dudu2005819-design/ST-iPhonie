@@ -20,7 +20,7 @@ import { directorMode, buildDirectorPrompt, parseDirectorReply, applyDirector } 
 const base=new URL('.',import.meta.url),marker=globalThis.crypto?.randomUUID?.()||'unavailable';
 let active=false,hooked=false,settings,cache,player,panel,frame,observer,renderTimer,floating,lineRaf,lineMedia,playbackMessage,selectedMessage,backend,enabling,directorPlayEpoch=0;
 let renderEpoch=0,pictures=null,chats=null,momentsHost=null,appsHost=null,callHost=null,memoryHost=null,voiceHost=null,soundHost=null,pendingDraw=null,legacy=false;
-const listeners=[],prompts=new Set(),directorMemo=new Map(),directorJobs=new Map();
+const listeners=[],prompts=new Set(),directorMemo=new Map(),directorJobs=new Map(),directorPrewarmTimers=new Map();
 let directorScope='';
 // Every copy of the plugin that loads adds its folder here, so the self-check can tell when it is installed twice.
 (globalThis.__stIphonieCopies??=new Set()).add(decodeURIComponent(base.pathname.replace(/\/$/,'').split('/').pop()));
@@ -154,7 +154,47 @@ async function directedStoryLines(snap,lines){
  return applyDirector(lines,decisions,settings,{performanceLevel:preset.performanceLevel||'rich',performanceCues:preset.performanceCues!==false});
 }
 
-function storeSettings(next){const voiced=voiceOn(),sounded=soundsOn(),oldScope=settings?.scope;settings=next;if(oldScope!==settings?.scope){directorScope='';directorLoad();}context().extensionSettings[NAMESPACE]=structuredClone(next);context().saveSettingsDebounced();if(active){memoryHost?.refreshStory();inject();syncFloating();if(voiced!==voiceOn()){player.stop();rerender();}else if(sounded!==soundsOn())rerender();else scheduleRender();}}
+
+function preAnalyzeEnabled(){
+ const preset=settings?.presets?.find(p=>p.id===settings.activePreset);
+ return voiceOn()&&directorMode(settings)&&preset?.preAnalyze!==false;
+}
+function latestAssistantId(){
+ const chat=context()?.chat||[];
+ for(let i=chat.length-1;i>=0;i--){const m=chat[i];if(m&&!m.is_user&&!m.is_system)return i;}
+ return -1;
+}
+/**
+ * Background director warm-up. MESSAGE_RECEIVED is emitted only after SillyTavern has committed the finished assistant
+ * reply, so this analyzes the complete reply instead of the streaming partial text. All voiced lines are sent in one
+ * LLM request and stored in directorMemo/localStorage; no Fish/MiniMax audio is generated here.
+ */
+function scheduleDirectorPreAnalyze(id,delay=260){
+ if(!active||!preAnalyzeEnabled())return;
+ let n=Number(id);if(!Number.isInteger(n)||n<0)n=latestAssistantId();if(n<0)return;
+ const snap=currentMessage(n);if(!snap)return;
+ const lines=parsed(snap.raw).lines.map((line,uiIndex)=>({...line,uiIndex}));
+ if(!lines.length)return;
+ directorLoad();const key=directorKey(snap,lines);
+ if(directorMemo.has(key)||directorJobs.has(key))return;
+ const timerKey=String(snap.chat)+':'+n;
+ clearTimeout(directorPrewarmTimers.get(timerKey));
+ directorPrewarmTimers.set(timerKey,setTimeout(async()=>{
+  directorPrewarmTimers.delete(timerKey);
+  const current=currentMessage(n);if(!current||current.chat!==snap.chat||current.raw!==snap.raw||current.swipe!==snap.swipe||!preAnalyzeEnabled())return;
+  const currentLines=parsed(current.raw).lines.map((line,uiIndex)=>({...line,uiIndex}));
+  if(!currentLines.length)return;
+  const currentKey=directorKey(current,currentLines);directorLoad();
+  if(directorMemo.has(currentKey)||directorJobs.has(currentKey))return;
+  try{
+   await directedStoryLines(current,currentLines);
+   if(directorMemo.has(currentKey))remember('语气预分析完成：'+currentLines.length+' 句');
+  }catch(error){remember('语气预分析失败：'+(error?.message||error),'error');}
+ },delay));
+}
+function clearDirectorPreAnalyzeTimers(){for(const timer of directorPrewarmTimers.values())clearTimeout(timer);directorPrewarmTimers.clear();}
+
+function storeSettings(next){const voiced=voiceOn(),sounded=soundsOn(),oldScope=settings?.scope;settings=next;if(oldScope!==settings?.scope){directorScope='';directorLoad();clearDirectorPreAnalyzeTimers();}context().extensionSettings[NAMESPACE]=structuredClone(next);context().saveSettingsDebounced();if(active){memoryHost?.refreshStory();inject();syncFloating();if(voiced!==voiceOn()){player.stop();rerender();}else if(sounded!==soundsOn())rerender();else scheduleRender();if(preAnalyzeEnabled())scheduleDirectorPreAnalyze(latestAssistantId(),120);}}
 function currentMessage(id){const ctx=context(),message=ctx.chat[id];if(!message||message.is_user||message.is_system)return null;return {message,chat:ctx.getCurrentChatId?.()??ctx.chatId,id,raw:message.mes,swipe:message.swipe_id};}
 function unchanged(snap){const now=currentMessage(snap.id);return active&&now?.message===snap.message&&now.chat===snap.chat&&now.raw===snap.raw&&now.swipe===snap.swipe;}
 // Mobile browsers only allow Web Audio to start inside the original tap/click gesture. Smart director waits for a
@@ -388,10 +428,12 @@ async function enableInternal(){if(active)return;const ctx=context();// generate
  if(!hooked&&!legacy){ctx.messageFormatter.addHook((text,meta)=>{if(!active||meta.isUser||meta.isSystem||meta.isReasoning||meta.messageId<0)return text;try{return transform(text);}catch{return text;}},{stage:ctx.messageFormatter.stage.BEFORE_REGEX,order:100});hooked=true;}
  const subscribe=(name,fn)=>{if(!name)return;ctx.eventSource.on(name,fn);listeners.push([ctx.eventSource,name,fn]);};subscribe(ctx.eventTypes.GENERATION_AFTER_COMMANDS,async(type,options,dryRun)=>{try{await memoryHost?.storyReady();}catch{}inject(type,options,dryRun);});
  // Each new story reply counts toward automatic 朋友圈 posts (off unless the user turns it on).
- subscribe(ctx.eventTypes.MESSAGE_RECEIVED,id=>{const receivedId=id??(context()?.chat||[]).length-1;soundHost?.received(receivedId);tagSpeakers((context()?.chat||[]).slice(-1));voiceAhead((context()?.chat||[]).slice(-1));momentsHost?.storyReplied();callHost?.storyReplied();});subscribe(ctx.eventTypes.CHAT_CHANGED,spaceChanged);spaceChanged();subscribe(ctx.eventTypes.CHAT_CHANGED,()=>soundHost?.chatChanged());soundHost.chatChanged();for(const event of ['MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],id=>soundHost?.messageChanged(event==='MESSAGE_DELETED'?undefined:id));
- for(const event of ['CHAT_CHANGED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],()=>{directorPlayEpoch++;directorJobs.clear();player.stop('消息已变化');scheduleRender();});for(const event of ['CHARACTER_MESSAGE_RENDERED','MESSAGE_RECEIVED'])subscribe(ctx.eventTypes[event],()=>legacy?legacyVoicePulse():scheduleRender());subscribe(ctx.eventTypes.CHARACTER_MESSAGE_RENDERED,id=>{soundHost?.rendered(id);pictures?.autoPictures(Number(id)).catch(e=>notice(e.message));});
+ subscribe(ctx.eventTypes.MESSAGE_RECEIVED,id=>{const receivedId=id??(context()?.chat||[]).length-1;soundHost?.received(receivedId);tagSpeakers((context()?.chat||[]).slice(-1));voiceAhead((context()?.chat||[]).slice(-1));momentsHost?.storyReplied();callHost?.storyReplied();scheduleDirectorPreAnalyze(receivedId,260);});subscribe(ctx.eventTypes.CHAT_CHANGED,spaceChanged);spaceChanged();subscribe(ctx.eventTypes.CHAT_CHANGED,()=>soundHost?.chatChanged());soundHost.chatChanged();for(const event of ['MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],id=>soundHost?.messageChanged(event==='MESSAGE_DELETED'?undefined:id));
+ for(const event of ['CHAT_CHANGED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],()=>{directorPlayEpoch++;directorJobs.clear();clearDirectorPreAnalyzeTimers();player.stop('消息已变化');scheduleRender();});subscribe(ctx.eventTypes.GENERATION_ENDED,()=>scheduleDirectorPreAnalyze(latestAssistantId(),320));
+ subscribe(ctx.eventTypes.MESSAGE_SWIPED,id=>scheduleDirectorPreAnalyze(id,320));
+ subscribe(ctx.eventTypes.MESSAGE_EDITED,id=>scheduleDirectorPreAnalyze(id,320));for(const event of ['CHARACTER_MESSAGE_RENDERED','MESSAGE_RECEIVED'])subscribe(ctx.eventTypes[event],()=>legacy?legacyVoicePulse():scheduleRender());subscribe(ctx.eventTypes.CHARACTER_MESSAGE_RENDERED,id=>{soundHost?.rendered(id);pictures?.autoPictures(Number(id)).catch(e=>notice(e.message));});
  document.addEventListener('click',click,true);document.addEventListener('keydown',keyUnlock,true);mountEntry();syncFloating();if(!legacy){observer=new MutationObserver(chatChanged);const chat=document.querySelector('#chat');if(chat)observer.observe(chat,{childList:true,subtree:true});}inject();rerender();if(legacy)legacyVoicePulse();}
 export function enable(){if(enabling)return enabling;enabling=enableInternal().finally(()=>{enabling=null;});return enabling;}
-export async function disable(){if(enabling)await enabling;if(!active)return;active=false;renderEpoch++;cancelAnimationFrame(lineRaf);lineMedia?.removeEventListener('change',animateLines);document.removeEventListener('visibilitychange',animateLines);playbackMessage=selectedMessage=null;healed.clear();directorPlayEpoch++;directorJobs.clear();player.stop();clearPrompts();for(const [source,event,fn] of listeners)source.removeListener(event,fn);listeners.length=0;observer?.disconnect();clearTimeout(renderTimer);renderTimer=0;document.removeEventListener('click',click,true);document.removeEventListener('keydown',keyUnlock,true);document.removeEventListener('visibilitychange',flushSync);globalThis.window?.removeEventListener?.('resize',panelResized);document.querySelector('#sttts-extension-entry')?.remove();floating?.destroy();floating=null;document.querySelectorAll('[data-sttts-owned="toolbar"]').forEach(el=>el.remove());panel?.remove();panel=frame=null;delete globalThis.__stIphoniePanelBridge;pictures=null;chats=null;momentsHost=null;appsHost=null;callHost?.dispose();callHost=null;memoryHost?.close();memoryHost=null;voiceHost=null;soundHost?.close();soundHost=null;pendingDraw=null;await backend.close();rerender();}
+export async function disable(){if(enabling)await enabling;if(!active)return;active=false;renderEpoch++;cancelAnimationFrame(lineRaf);lineMedia?.removeEventListener('change',animateLines);document.removeEventListener('visibilitychange',animateLines);playbackMessage=selectedMessage=null;healed.clear();directorPlayEpoch++;directorJobs.clear();clearDirectorPreAnalyzeTimers();player.stop();clearPrompts();for(const [source,event,fn] of listeners)source.removeListener(event,fn);listeners.length=0;observer?.disconnect();clearTimeout(renderTimer);renderTimer=0;document.removeEventListener('click',click,true);document.removeEventListener('keydown',keyUnlock,true);document.removeEventListener('visibilitychange',flushSync);globalThis.window?.removeEventListener?.('resize',panelResized);document.querySelector('#sttts-extension-entry')?.remove();floating?.destroy();floating=null;document.querySelectorAll('[data-sttts-owned="toolbar"]').forEach(el=>el.remove());panel?.remove();panel=frame=null;delete globalThis.__stIphoniePanelBridge;pictures=null;chats=null;momentsHost=null;appsHost=null;callHost?.dispose();callHost=null;memoryHost?.close();memoryHost=null;voiceHost=null;soundHost?.close();soundHost=null;pendingDraw=null;await backend.close();rerender();}
 export const dispose=disable;
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>enable().catch(e=>notice(e.message)),{once:true});else enable().catch(e=>notice(e.message));
