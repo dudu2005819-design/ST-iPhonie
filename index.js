@@ -177,17 +177,7 @@ function keepFrontends(id,redraw){const box=()=>document.querySelector(`#chat .m
  if(pres.length===wraps.length)wraps.forEach((w,i)=>{if(w&&pres[i].parentElement===after)pres[i].replaceWith(w);});
  if(after.querySelectorAll('iframe').length<had){const ctx=context();ctx.eventSource?.emit(ctx.eventTypes.MESSAGE_UPDATED,id);}}
 function redrawMessage(id,message){keepFrontends(id,()=>context().updateMessageBlock(id,message));}
-function healReceivedVoice(id){
- const n=Number(id),snap=Number.isInteger(n)?currentMessage(n):null;if(!snap)return;
- const lines=parsed(snap.raw).lines;if(!voiceOn()||!lines.length)return;
- const element=document.querySelector(`#chat .mes[mesid="${n}"]`);
- if(!element)return;
- const hasWave=!!element.querySelector(`[data-sttts-line][data-sttts-token="${marker}"]`);
- if(hasWave)return;
- healed.set(n,snap.raw);
- redrawMessage(n,snap.message);
- setTimeout(()=>scheduleRender(),60);
-}
+
 // Changes inside one reply (a streamed chunk, a frontend drawn by 酒馆助手) redraw only that reply; anything else redraws
 // all of them. While a long reply streams in, going through every earlier reply each time made phones freeze.
 let renderAll=false;const renderIds=new Set();
@@ -364,11 +354,7 @@ async function enableInternal(){if(active)return;const ctx=context();// generate
  if(!hooked&&!legacy){ctx.messageFormatter.addHook((text,meta)=>{if(!active||meta.isUser||meta.isSystem||meta.isReasoning||meta.messageId<0)return text;try{return transform(text);}catch{return text;}},{stage:ctx.messageFormatter.stage.BEFORE_REGEX,order:100});hooked=true;}
  const subscribe=(name,fn)=>{if(!name)return;ctx.eventSource.on(name,fn);listeners.push([ctx.eventSource,name,fn]);};subscribe(ctx.eventTypes.GENERATION_AFTER_COMMANDS,async(type,options,dryRun)=>{try{await memoryHost?.storyReady();}catch{}inject(type,options,dryRun);});
  // Each new story reply counts toward automatic 朋友圈 posts (off unless the user turns it on).
- subscribe(ctx.eventTypes.MESSAGE_RECEIVED,id=>{const receivedId=id??(context()?.chat||[]).length-1;soundHost?.received(receivedId);tagSpeakers((context()?.chat||[]).slice(-1));voiceAhead((context()?.chat||[]).slice(-1));momentsHost?.storyReplied();callHost?.storyReplied();
- // MESSAGE_RECEIVED means the reply is final even when streaming is disabled. Give the tavern one paint, then force
- // exactly one voice-format pass if raw low-token payloads are still visible instead of wave buttons.
- setTimeout(()=>healReceivedVoice(receivedId),80);
-});subscribe(ctx.eventTypes.CHAT_CHANGED,spaceChanged);spaceChanged();subscribe(ctx.eventTypes.CHAT_CHANGED,()=>soundHost?.chatChanged());soundHost.chatChanged();for(const event of ['MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],id=>soundHost?.messageChanged(event==='MESSAGE_DELETED'?undefined:id));
+ subscribe(ctx.eventTypes.MESSAGE_RECEIVED,id=>{const receivedId=id??(context()?.chat||[]).length-1;soundHost?.received(receivedId);tagSpeakers((context()?.chat||[]).slice(-1));voiceAhead((context()?.chat||[]).slice(-1));momentsHost?.storyReplied();callHost?.storyReplied();});subscribe(ctx.eventTypes.CHAT_CHANGED,spaceChanged);spaceChanged();subscribe(ctx.eventTypes.CHAT_CHANGED,()=>soundHost?.chatChanged());soundHost.chatChanged();for(const event of ['MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],id=>soundHost?.messageChanged(event==='MESSAGE_DELETED'?undefined:id));
  for(const event of ['CHAT_CHANGED','MESSAGE_SWIPED','MESSAGE_EDITED','MESSAGE_DELETED'])subscribe(ctx.eventTypes[event],()=>{directorPlayEpoch++;directorJobs.clear();player.stop('消息已变化');scheduleRender();});for(const event of ['CHARACTER_MESSAGE_RENDERED','MESSAGE_RECEIVED'])subscribe(ctx.eventTypes[event],scheduleRender);subscribe(ctx.eventTypes.CHARACTER_MESSAGE_RENDERED,id=>{soundHost?.rendered(id);pictures?.autoPictures(Number(id)).catch(e=>notice(e.message));});
  document.addEventListener('click',click,true);document.addEventListener('keydown',keyUnlock,true);mountEntry();syncFloating();observer=new MutationObserver(chatChanged);const chat=document.querySelector('#chat');if(chat)observer.observe(chat,{childList:true,subtree:true});inject();rerender();}
 export function enable(){if(enabling)return enabling;enabling=enableInternal().finally(()=>{enabling=null;});return enabling;}
