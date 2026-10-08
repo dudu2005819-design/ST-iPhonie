@@ -177,6 +177,39 @@ function keepFrontends(id,redraw){const box=()=>document.querySelector(`#chat .m
  if(pres.length===wraps.length)wraps.forEach((w,i)=>{if(w&&pres[i].parentElement===after)pres[i].replaceWith(w);});
  if(after.querySelectorAll('iframe').length<had){const ctx=context();ctx.eventSource?.emit(ctx.eventTypes.MESSAGE_UPDATED,id);}}
 function redrawMessage(id,message){keepFrontends(id,()=>context().updateMessageBlock(id,message));}
+function makeWaveOnly(index,role){
+ const owner=document.createElement('span');owner.className='sttts-utterance';owner.dataset.stttsLine=String(index);owner.dataset.stttsToken=marker;
+ const button=document.createElement('button');button.type='button';button.className='sttts-play';button.dataset.stttsAction='line';button.dataset.stttsState='ungenerated';button.setAttribute('aria-label','生成并朗读 '+role+' 的台词');
+ const wave=document.createElement('span');wave.dataset.stttsWave='';wave.setAttribute('aria-hidden','true');
+ for(let i=0;i<5;i++){const bar=document.createElement('i');bar.dataset.stttsBar='';wave.appendChild(bar);}
+ button.appendChild(wave);owner.append(' ',button);return owner;
+}
+function replaceVisiblePayload(box,needle,node){
+ const walker=document.createTreeWalker(box,NodeFilter.SHOW_TEXT);let text;
+ while(text=walker.nextNode()){
+  if(text.parentElement?.closest('[data-sttts-token],button,textarea,script,style,pre,code'))continue;
+  const at=(text.nodeValue||'').indexOf(needle);if(at<0)continue;
+  const before=text.nodeValue.slice(0,at),after=text.nodeValue.slice(at+needle.length),parent=text.parentNode;
+  if(before)parent.insertBefore(document.createTextNode(before),text);
+  parent.insertBefore(node,text);
+  if(after)parent.insertBefore(document.createTextNode(after),text);
+  text.remove();return true;
+ }
+ return false;
+}
+function healVoiceDOM(element,lines){
+ if(!voiceOn()||!lines.length)return;
+ const box=element.querySelector('.mes_text');if(!box)return;
+ lines.forEach((line,index)=>{
+  if(box.querySelector(`[data-sttts-line="${index}"][data-sttts-token="${marker}"]`))return;
+  const tag=[...box.querySelectorAll('tts')].find(el=>{const p=(el.textContent||'').trim().split('|');return p.length>=2&&p.length<=3&&p[0].trim()===line.role&&p.at(-1).trim()===line.text.trim();});
+  if(tag){tag.replaceWith(makeWaveOnly(index,line.role));return;}
+  for(const emotion of [line.emotion,'auto','']){
+   const needle=emotion?`${line.role}|${emotion}|${line.text}`:`${line.role}|${line.text}`;
+   if(replaceVisiblePayload(box,needle,makeWaveOnly(index,line.role)))return;
+  }
+ });
+}
 
 // Changes inside one reply (a streamed chunk, a frontend drawn by 酒馆助手) redraw only that reply; anything else redraws
 // all of them. While a long reply streams in, going through every earlier reply each time made phones freeze.
