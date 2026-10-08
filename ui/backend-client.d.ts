@@ -78,6 +78,8 @@ export interface Preset {
     performanceLevel?: 'natural' | 'rich' | 'dramatic';
     /** Whether native engine sound cues / pauses may be inserted by the smart director. */
     performanceCues?: boolean;
+    /** Analyze every voiced line once in the background as soon as a story reply finishes. */
+    preAnalyze?: boolean;
     injection: Injection;
     entries: PresetEntry[];
 }
