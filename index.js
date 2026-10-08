@@ -20,7 +20,7 @@ import { directorMode, buildDirectorPrompt, parseDirectorReply, applyDirector } 
 const base=new URL('.',import.meta.url),marker=globalThis.crypto?.randomUUID?.()||'unavailable';
 let active=false,hooked=false,settings,cache,player,panel,frame,observer,renderTimer,floating,lineRaf,lineMedia,playbackMessage,selectedMessage,backend,enabling,directorPlayEpoch=0;
 let renderEpoch=0,pictures=null,chats=null,momentsHost=null,appsHost=null,callHost=null,memoryHost=null,voiceHost=null,soundHost=null,pendingDraw=null,legacy=false;
-const listeners=[],prompts=new Set(),directorMemo=new Map(),directorJobs=new Map(),directorPrewarmTimers=new Map();
+const listeners=[],prompts=new Set(),directorMemo=new Map(),directorJobs=new Map(),directorPrewarmTimers=new Map(),directorBackgroundJobs=new Map();
 let directorScope='';
 // Every copy of the plugin that loads adds its folder here, so the self-check can tell when it is installed twice.
 (globalThis.__stIphonieCopies??=new Set()).add(decodeURIComponent(base.pathname.replace(/\/$/,'').split('/').pop()));
@@ -155,9 +155,14 @@ async function directedStoryLines(snap,lines){
 }
 
 
-function preAnalyzeEnabled(){
- const preset=settings?.presets?.find(p=>p.id===settings.activePreset);
- return voiceOn()&&directorMode(settings)&&preset?.preAnalyze!==false;
+function directorPreset(){return settings?.presets?.find(p=>p.id===settings.activePreset)||{};}
+function preAnalyzeEnabled(){return voiceOn()&&directorMode(settings)&&directorPreset().preAnalyze!==false;}
+function preGenerateAudioEnabled(){return preAnalyzeEnabled()&&directorPreset().preGenerateAudio!==false;}
+function directorProgressNotice(message,kind='info',timeOut=2600){
+ if(directorPreset().preAnalyzeNotify===false)return;
+ remember(message,kind==='error'?'error':'notice');
+ const toast=globalThis.toastr?.[kind]||globalThis.toastr?.info;
+ if(toast)toast.call(globalThis.toastr,message,'ST-iPhonie',{timeOut,extendedTimeOut:800,progressBar:true});
 }
 function latestAssistantId(){
  const chat=context()?.chat||[];
@@ -165,9 +170,9 @@ function latestAssistantId(){
  return -1;
 }
 /**
- * Background director warm-up. MESSAGE_RECEIVED is emitted only after SillyTavern has committed the finished assistant
- * reply, so this analyzes the complete reply instead of the streaming partial text. All voiced lines are sent in one
- * LLM request and stored in directorMemo/localStorage; no Fish/MiniMax audio is generated here.
+ * MESSAGE_RECEIVED is emitted only after SillyTavern committed the final assistant reply. One background job:
+ * 1) analyzes every voiced line in one LLM call; 2) optionally synthesizes each TTS line silently into IndexedDB.
+ * Nothing is played. When the user later taps a wave, DialoguePlayer finds the same request hash in cache.
  */
 function scheduleDirectorPreAnalyze(id,delay=260){
  if(!active||!preAnalyzeEnabled())return;
@@ -175,24 +180,66 @@ function scheduleDirectorPreAnalyze(id,delay=260){
  const snap=currentMessage(n);if(!snap)return;
  const lines=parsed(snap.raw).lines.map((line,uiIndex)=>({...line,uiIndex}));
  if(!lines.length)return;
- directorLoad();const key=directorKey(snap,lines);
- if(directorMemo.has(key)||directorJobs.has(key))return;
  const timerKey=String(snap.chat)+':'+n;
  clearTimeout(directorPrewarmTimers.get(timerKey));
- directorPrewarmTimers.set(timerKey,setTimeout(async()=>{
+ directorPrewarmTimers.set(timerKey,setTimeout(()=>{
   directorPrewarmTimers.delete(timerKey);
-  const current=currentMessage(n);if(!current||current.chat!==snap.chat||current.raw!==snap.raw||current.swipe!==snap.swipe||!preAnalyzeEnabled())return;
+  const current=currentMessage(n);
+  if(!current||current.chat!==snap.chat||current.raw!==snap.raw||current.swipe!==snap.swipe||!preAnalyzeEnabled())return;
   const currentLines=parsed(current.raw).lines.map((line,uiIndex)=>({...line,uiIndex}));
   if(!currentLines.length)return;
-  const currentKey=directorKey(current,currentLines);directorLoad();
-  if(directorMemo.has(currentKey)||directorJobs.has(currentKey))return;
-  try{
-   await directedStoryLines(current,currentLines);
-   if(directorMemo.has(currentKey))remember('语气预分析完成：'+currentLines.length+' 句');
-  }catch(error){remember('语气预分析失败：'+(error?.message||error),'error');}
+  directorLoad();const key=directorKey(current,currentLines);
+  if(directorBackgroundJobs.has(key))return;
+
+  const job=(async()=>{
+   const hadAnalysis=directorMemo.has(key);
+   if(!hadAnalysis)directorProgressNotice('🎭 正在分析本条回复的 '+currentLines.length+' 句语气…','info',3200);
+   let directed;
+   try{
+    directed=await directedStoryLines(current,currentLines);
+   }catch(error){
+    directorProgressNotice('语气预分析失败：'+(error?.message||error),'error',5000);
+    return;
+   }
+   if(!currentMessage(n)||!unchanged(current)||!preAnalyzeEnabled())return;
+   const analysisReady=directorMemo.has(key);
+   if(!analysisReady){
+    directorProgressNotice('语气导演未得到可缓存结果，本次点击时再分析','warning',4200);
+    return;
+   }
+   if(!preGenerateAudioEnabled()){
+    directorProgressNotice('✅ 语气分析完成 · '+currentLines.length+' 句已缓存','success',3000);
+    scheduleRender();return;
+   }
+   if(!settings.general.cacheEnabled){
+    directorProgressNotice('✅ 语气分析完成；语音缓存未开启，所以没有预生成音频','warning',4500);
+    scheduleRender();return;
+   }
+
+   directorProgressNotice('✅ 语气分析完成 · 正在后台缓存 '+currentLines.length+' 句语音…','success',3600);
+   const valid=()=>{
+    const now=currentMessage(n);
+    return active&&now?.message===current.message&&now.chat===current.chat&&now.raw===current.raw&&now.swipe===current.swipe;
+   };
+   const result=await player.prefetch(directed,valid,progress=>{
+    if(progress.status==='generated'||progress.status==='ready')scheduleRender();
+   });
+   if(result.cancelled)return;
+   scheduleRender();
+   const usable=result.ready+result.generated;
+   const extra=result.skipped?(' · '+result.skipped+' 句无音色'):'';
+   const bad=result.failed?(' · '+result.failed+' 句失败'):'';
+   const kind=result.failed?'warning':'success';
+   directorProgressNotice('🔊 语音缓存完成 · '+usable+'/'+result.total+' 句可直接播放'+extra+bad,kind,result.failed?5000:3500);
+  })().catch(error=>directorProgressNotice('后台配音准备失败：'+(error?.message||error),'error',5000)).finally(()=>directorBackgroundJobs.delete(key));
+  directorBackgroundJobs.set(key,job);
  },delay));
 }
-function clearDirectorPreAnalyzeTimers(){for(const timer of directorPrewarmTimers.values())clearTimeout(timer);directorPrewarmTimers.clear();}
+function clearDirectorPreAnalyzeTimers(){
+ for(const timer of directorPrewarmTimers.values())clearTimeout(timer);
+ directorPrewarmTimers.clear();
+ directorBackgroundJobs.clear();
+}
 
 function storeSettings(next){const voiced=voiceOn(),sounded=soundsOn(),oldScope=settings?.scope;settings=next;if(oldScope!==settings?.scope){directorScope='';directorLoad();clearDirectorPreAnalyzeTimers();}context().extensionSettings[NAMESPACE]=structuredClone(next);context().saveSettingsDebounced();if(active){memoryHost?.refreshStory();inject();syncFloating();if(voiced!==voiceOn()){player.stop();rerender();}else if(sounded!==soundsOn())rerender();else scheduleRender();if(preAnalyzeEnabled())scheduleDirectorPreAnalyze(latestAssistantId(),120);}}
 function currentMessage(id){const ctx=context(),message=ctx.chat[id];if(!message||message.is_user||message.is_system)return null;return {message,chat:ctx.getCurrentChatId?.()??ctx.chatId,id,raw:message.mes,swipe:message.swipe_id};}
