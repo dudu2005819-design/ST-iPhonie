@@ -43,19 +43,21 @@ export function buildRequest(engine,connection,route,line,references=new Map()){
  const lineEmotion=String(line.emotion||'').trim().toLowerCase()==='auto'?'':line.emotion;
  // The 情绪 field becomes the model's own opening tag (Fish, Eleven v3/v4) unless the text already starts with one.
  const request=P.requestPreview(engine,c,route.voice,P.emotionTag(engine,c.model,lineEmotion,line.text),c.model);
- // Smart director rich mode: Fish S2/S2.1 becomes a little more expressive without changing the saved engine preset.
- // Keep the lift modest so the same character does not drift between lines; dramatic mode is intentionally stronger.
- if(engine==='fish'&&c.model!=='s1'&&line.directorRich){
+ // Smart director adjusts timing, not Fish sampling randomness. Raising temperature/top_p on every acted line made
+ // some cloned voices develop metallic/noisy artifacts. Keep the user's/Fish default sampling exactly as configured,
+ // and only apply a small contextual speed change from the director.
+ if(engine==='fish'&&line.directorRich){
   const fish=request.body?.provider?.options?.['fish-audio'];
-  if(fish){
-   const level=line.directorLevel||'rich',floorTemp=level==='dramatic'?.86:level==='natural'?.70:.78,floorTopP=level==='dramatic'?.90:level==='natural'?.72:.82;
-   fish.temperature=Math.min(1,Math.max(Number(fish.temperature)||0,floorTemp));
-   fish.top_p=Math.min(1,Math.max(Number(fish.top_p)||0,floorTopP));
+  if(fish?.prosody){
+   const base=Number(fish.prosody.speed);const factor=Number(line.directorSpeed)||1;
+   if(Number.isFinite(base))fish.prosody.speed=Math.max(.75,Math.min(1.25,Math.round(base*factor*100)/100));
   }
  }
  if(engine==='fish'&&c.params.references.length){request.body.provider.options['fish-audio'].references=c.params.references.map(r=>{const audio=references.get(r.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择参考音频：'+r.audio);return {audio,text:r.text};});}
  // MiniMax takes a fixed emotion list: Chinese or English words map onto it; anything else lets the model choose.
  if(engine==='mini'&&!request.body.voice_setting.emotion){const emotion=P.miniEmotion(c.model,lineEmotion);if(emotion)request.body.voice_setting.emotion=emotion;else delete request.body.voice_setting.emotion;}
+ if(engine==='mini'&&line.directorRich&&request.body?.voice_setting){const base=Number(request.body.voice_setting.speed);const factor=Number(line.directorSpeed)||1;if(Number.isFinite(base))request.body.voice_setting.speed=Math.max(.8,Math.min(1.2,Math.round(base*factor*100)/100));}
+ if(engine==='eleven'&&line.directorRich&&request.body?.voice_settings&&c.model!=='eleven_v3'){const base=Number(request.body.voice_settings.speed);const factor=Number(line.directorSpeed)||1;if(Number.isFinite(base))request.body.voice_settings.speed=Math.max(.8,Math.min(1.2,Math.round(base*factor*100)/100));}
  // MiMo voice clone: the role's 音色 names an uploaded sample, sent as a data URI (mp3 or wav, at most 10 MB once encoded).
  if(engine==='mimo'&&P.mimoMode(c.model)==='clone'){const name=route.voice.trim(),sample=c.params.samples.find(x=>String(x.name).trim()===name);if(!sample)throw Error('找不到名叫「'+name+'」的克隆样本，请在 MiMo 引擎里上传');const audio=references.get(sample.audio);if(typeof audio!=='string'||!audio)throw Error('请在引擎设置重新选择克隆样本：'+name);if(audio.length>10*1024*1024)throw Error('克隆样本「'+name+'」太大：编码后不能超过 10 MB，换一段短一点的');const type=audio.startsWith('UklGR')?'audio/wav':/^(SUQz|\/\/)/.test(audio)?'audio/mpeg':'';if(!type)throw Error('克隆样本「'+name+'」不是 mp3 或 wav');request.body.audio.voice='data:'+type+';base64,'+audio;}
  if(engine==='eleven'&&!request.body.language_code&&c.model!=='eleven_multilingual_v2'){const code=languageCode(route.language).split('-')[0];if(/^[a-z]{2,3}$/.test(code))request.body.language_code=code;}
