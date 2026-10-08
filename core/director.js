@@ -175,21 +175,17 @@ function validDelivery(value) {
 }
 const pauseText = seconds => Number(seconds) >= .52 ? '……' : '…';
 
-function annotate(text, {pause, sounds, tone, maxSounds=2, maxTones=2} = {}) {
-  let used = 0, tones = 0;
+function annotate(text, {pause, sounds, tone, maxSounds=2, maxTones=2, maxInline=99} = {}) {
+  let soundsUsed=0, tones=0, inline=0;
   return String(text).replace(/<(pause=\d+(?:\.\d+)?|tone=[a-z][a-z ,'-]{1,64}|breath|sigh|chuckle|laugh|inhale|exhale|gasp|sniff|emm)>/gi, (whole, token) => {
-    const t = String(token).toLowerCase();
-    if (t.startsWith('pause=')) return pause ? pause(Number(t.slice(6)) || .3) : '';
-    if (t.startsWith('tone=')) {
-      if (!tone || tones >= maxTones) return '';
-      tones++;
-      return tone(t.slice(5));
+    const t=String(token).toLowerCase();
+    if(t.startsWith('pause=')) return pause ? pause(Number(t.slice(6))||.3) : '';
+    if(t.startsWith('tone=')){
+      if(!tone||tones>=maxTones||inline>=maxInline)return '';
+      const out=tone(t.slice(5));if(!out)return '';tones++;inline++;return out;
     }
-    if (used >= maxSounds) return '';
-    const value = sounds?.[t];
-    if (!value) return '';
-    used++;
-    return value;
+    if(soundsUsed>=maxSounds||inline>=maxInline)return '';
+    const out=sounds?.[t];if(!out)return '';soundsUsed++;inline++;return out;
   });
 }
 
@@ -226,10 +222,10 @@ export function applyDirector(lines, decisions, settings, options = {}) {
 
     if (engine === 'fish' && model !== 's1') {
       const sounds = {
-        breath:'[soft breath] ', sigh:'[soft sigh] ', chuckle:'[chuckles softly] ', laugh:'[laughs naturally] ',
-        inhale:'[inhales softly] ', exhale:'[exhales slowly] ', gasp:'[small gasp] ', sniff:'[sniffs softly] ', emm:'[hesitates softly] '
+        breath:'[breathing softly] ', sigh:'[sigh] ', chuckle:'[chuckling softly] ', laugh:'[laughing softly] ',
+        inhale:'[inhales softly] ', exhale:'[exhales slowly] ', gasp:'[gasps softly] ', sniff:'[sniffs softly] ', emm:'[hesitates] '
       };
-      text = annotate(annotated, {pause: pauseText, sounds, tone:value=>'['+validDelivery(value)+'] ', maxSounds: Math.min(2, limits.sounds), maxTones:2});
+      text = annotate(annotated, {pause: pauseText, sounds, tone:value=>{const v=validDelivery(value);return v?'['+v+'] ':'';}, maxSounds: Math.min(2, limits.sounds), maxTones:2, maxInline:2});
       const delivery = validDelivery(d.delivery) || validDelivery(FISH_FALLBACK[d.emotion]) || 'natural, conversational, expressive';
       text = `[${delivery}] ${text}`;
       // One leading delivery tag + at most two in-line sound tags = Fish S2/S2.1's documented three-tag ceiling.
@@ -277,7 +273,7 @@ export function applyDirector(lines, decisions, settings, options = {}) {
         breath:'[breathes softly] ', sigh:'[sighs] ', chuckle:'[chuckles] ', laugh:'[laughs] ', inhale:'[inhales] ',
         exhale:'[exhales] ', gasp:'[gasps] ', sniff:'[sniffs] ', emm:'[hesitates] '
       };
-      text = annotate(annotated, {pause: pauseText, sounds, tone:value=>{const v=validDelivery(value);return v?'['+v+'] ':'';}, maxSounds: Math.min(2, limits.sounds), maxTones:2});
+      text = annotate(annotated, {pause: pauseText, sounds, tone:value=>{const v=validDelivery(value);return v?'['+v+'] ':'';}, maxSounds: Math.min(2, limits.sounds), maxTones:2, maxInline:2});
       const delivery = validDelivery(d.delivery || (d.emotion === 'neutral' ? '' : d.emotion));
       if (delivery) text = `[${delivery}] ${text}`;
       emotion = '';
