@@ -80,8 +80,10 @@ export interface Preset {
     performanceCues?: boolean;
     /** Analyze every voiced line once in the background as soon as a story reply finishes. */
     preAnalyze?: boolean;
-    /** Show a top toast while background director pre-analysis runs and when it finishes. */
-    preAnalyzeNotice?: boolean;
+    /** Generate and cache all TTS lines after the background director finishes. */
+    preGenerateAudio?: boolean;
+    /** Show a top progress toast through analysis, audio caching, and completion. */
+    preAnalyzeNotify?: boolean;
     injection: Injection;
     entries: PresetEntry[];
 }
