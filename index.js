@@ -122,7 +122,7 @@ function directorSave(){
 }
 function directorRemember(key,decisions){directorMemo.delete(key);directorMemo.set(key,{decisions,at:Date.now()});while(directorMemo.size>40)directorMemo.delete(directorMemo.keys().next().value);directorSave();}
 function shortHash(text){let h=2166136261;for(let i=0;i<String(text).length;i++){h^=String(text).charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
-function directorKey(snap,lines){return [snap.chat,snap.id,snap.swipe??'',shortHash(snap.raw),shortHash(lines.map(l=>l.role+'|'+l.text).join('\n'))].join(':');}
+function directorKey(snap,lines){return ['fish-rich-v2',snap.chat,snap.id,snap.swipe??'',shortHash(snap.raw),shortHash(lines.map(l=>l.role+'|'+l.text).join('\n'))].join(':');}
 function previousUser(snap){const chat=context()?.chat||[];for(let i=snap.id-1;i>=0&&i>=snap.id-8;i--){const m=chat[i];if(m?.is_user)return String(m.mes||'');}return '';}
 function directorProfiles(lines){
  const ctx=context(),names=[...new Set(lines.map(l=>l.role).filter(Boolean))].slice(0,4),out=[];
@@ -135,7 +135,8 @@ async function directedStoryLines(snap,lines){
  if(!decisions){
   let job=directorJobs.get(key);
   if(!job){job=(async()=>{
-    const prompt=buildDirectorPrompt({message:snap.raw,previousUser:previousUser(snap),profiles:directorProfiles(lines),lines});
+    const directedInput=lines.map(line=>{const route=settings.routes.find(r=>r.name===line.role);return {...line,engine:route?.engine||'',model:route?.model||settings.connections?.[route?.engine]?.model||''};});
+    const prompt=buildDirectorPrompt({message:snap.raw,previousUser:previousUser(snap),profiles:directorProfiles(lines),lines:directedInput});
     // The director is optional. Never let a slow custom LLM block a tap for minutes.
     const timeout=new Promise((_,reject)=>setTimeout(()=>reject(Error('智能导演分析超时')),15000));
     const raw=await Promise.race([
@@ -146,12 +147,33 @@ async function directedStoryLines(snap,lines){
    })().finally(()=>directorJobs.delete(key));directorJobs.set(key,job);}
   try{decisions=await job;}catch(error){remember('智能导演失败：'+(error?.message||error),'error');return lines.map(l=>({...l,emotion:String(l.emotion||'').toLowerCase()==='auto'?'':l.emotion}));}
  }
- // Safe director mode: keep the spoken text byte-for-byte unchanged and only provide a coarse emotion.
- // This avoids vendor-specific pause/sound tags making otherwise-working Fish/MiniMax requests hang.
- // Once stable on-device, richer prosody can be re-enabled per engine behind an explicit switch.
+ // Stable rich mode: keep spoken text byte-for-byte unchanged. For Fish S2/S2.1, however, use exactly one
+ // leading natural-language delivery tag via the existing emotion field. This is the engine's own supported path and
+ // gives much richer acting than a single "happy/sad/calm" label without reintroducing risky mid-line pause/sound tags.
+ const fishFallback={
+  neutral:'natural, conversational, expressive',
+  calm:'warm, relaxed, conversational',
+  happy:'bright, warm, lightly animated',
+  sad:'soft, subdued, emotionally heavy',
+  angry:'cold, clipped, controlled anger',
+  fearful:'tense, uneasy, slightly breathless',
+  disgusted:'cold, restrained, faintly disdainful',
+  surprised:'caught off guard, alert, quick'
+ };
+ const s1Emotion={neutral:'calm',calm:'calm',happy:'happy',sad:'sad',angry:'angry',fearful:'scared',disgusted:'disgusted',surprised:'surprised'};
+ const cleanDelivery=value=>{
+  let text=String(value||'').trim().toLowerCase().replace(/[^a-z ,'-]/g,'').replace(/\s+/g,' ');
+  if(text.length>40)text=text.slice(0,40).replace(/\s+\S*$/,'').replace(/[ ,'-]+$/,'');
+  return /^[a-z][a-z ,'-]{1,40}$/.test(text)?text:'';
+ };
  return lines.map((line,i)=>{
-  const emotion=String(decisions?.[i]?.emotion||'').toLowerCase();
-  return {...line,text:line.text,emotion:emotion&&emotion!=='neutral'?emotion:''};
+  const d=decisions?.[i]||{},emotion=String(d.emotion||'neutral').toLowerCase(),route=settings.routes.find(r=>r.name===line.role),engine=route?.engine||'',model=route?.model||settings.connections?.[engine]?.model||'';
+  let directedEmotion='';
+  if(engine==='fish'&&model!=='s1') directedEmotion=cleanDelivery(d.delivery)||cleanDelivery(fishFallback[emotion])||'natural, conversational';
+  else if(engine==='fish'&&model==='s1') directedEmotion=s1Emotion[emotion]||'calm';
+  else if(engine==='mimo') directedEmotion=String(d.style||'').trim()||({happy:'开心',sad:'悲伤',angry:'愤怒',fearful:'恐惧',disgusted:'冷漠',surprised:'惊讶',calm:'平静'}[emotion]||'');
+  else directedEmotion=emotion&&emotion!=='neutral'?emotion:'';
+  return {...line,text:line.text,emotion:directedEmotion};
  });
 }
 
