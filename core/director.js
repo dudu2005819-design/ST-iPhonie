@@ -9,6 +9,16 @@ const UNIVERSAL = new Set(['neutral','happy','sad','angry','fearful','disgusted'
 const GENERIC = new Set(['breath','sigh','chuckle','laugh','inhale','exhale','gasp','sniff','emm']);
 const MIMO_FROM = {neutral:'平静',happy:'开心',sad:'悲伤',angry:'愤怒',fearful:'恐惧',disgusted:'冷漠',surprised:'惊讶',calm:'平静'};
 const FISH_S1_FROM = {neutral:'calm',happy:'happy',sad:'sad',angry:'angry',fearful:'scared',disgusted:'disgusted',surprised:'surprised',calm:'calm'};
+const FISH_FALLBACK = {
+  neutral:'natural, conversational, expressive',
+  calm:'warm, relaxed, conversational',
+  happy:'bright, warm, lightly animated',
+  sad:'soft, subdued, emotionally heavy',
+  angry:'cold, clipped, controlled anger',
+  fearful:'tense, uneasy, slightly breathless',
+  disgusted:'cold, restrained, faintly disdainful',
+  surprised:'caught off guard, alert, quick'
+};
 
 export const DIRECTOR_PROMPT = [
   '正常续写正文与叙事，不改变角色人设、文风或剧情。',
@@ -44,31 +54,51 @@ function plainSource(text='') {
     .trim();
 }
 
-export function buildDirectorPrompt({message='', previousUser='', profiles='', lines=[]} = {}) {
+const LEVEL_RULES = {
+  natural: [
+    '表演强度：自然克制。优先像真人日常说话，只在语义明确需要时给明显情绪；声音动作通常 0–1 个。',
+    '亲密、嘴硬、疲惫等细节可以有，但不要把轻微情绪演成戏剧高潮。'
+  ],
+  rich: [
+    '表演强度：饱满自然。情绪必须能被听见，但不能变成夸张广播腔；重点表现潜台词、关系感、克制程度和句子里的转折。',
+    '普通句也要有具体说话意图，不要大量退回 neutral / calm；声音动作通常 0–2 个，明显转折时可以有自然停顿。'
+  ],
+  dramatic: [
+    '表演强度：强表演。允许更明显的情绪起伏、停顿和声音动作，但仍要符合角色和剧情，不能无缘无故哭喊、喘息或耳语。',
+    '声音动作通常 1–3 个；强情绪场景可以更明显，但日常对白仍要像真人。'
+  ]
+};
+
+export function buildDirectorPrompt({message='', previousUser='', profiles='', lines=[], performanceLevel='rich', performanceCues=true} = {}) {
+  const level = LEVEL_RULES[performanceLevel] ? performanceLevel : 'rich';
   const rows = lines.map((l, i) => `${i}. ${l.role}${l.engine ? ` [${l.engine}${l.model ? ' · '+l.model : ''}]` : ''}：${l.text}`).join('\n');
   return [
     '你是中文角色扮演的 TTS 表演导演。你的任务只有一个：判断这些已经写好的台词应该怎么念。不要改剧情、不要改台词。',
     '',
     '【表演原则】',
-    '- 真人感优先。先理解上下文里的关系、动作、停顿、嘴硬、疲惫、犹豫、克制、亲密程度，再决定声音。',
-    '- 不要把每句话都演得很重。没有明确强情绪时，宁可克制、自然。',
-    '- 呼吸、叹气、轻笑、迟疑和停顿只在真正有表演价值的位置加；通常每句 0–2 个，最多 4 个。',
-    '- 不要为了“活人感”机械地每句都叹气、喘息、耳语或笑。',
-    '- Fish Audio S2 / S2.1 角色要充分利用自然语言语气控制：delivery_en 不要只写 happy / sad / calm 这种单一大类，而要把「主情绪 + 说话意图/关系感 + 能量或克制程度」压成 2–5 个英文短词，通常 12–40 个字符。',
-    '- Fish Audio 的表演要饱满但不能夸张：亲密可以是 warm, affectionate, softly amused；嘴硬可以是 restrained, fond, trying to hide it；委屈可以是 hurt, subdued, holding back tears；生气可以是 cold, clipped, controlled anger；疲惫照顾人可以是 gentle, protective, slightly tired。根据剧情选，不要机械套例子。',
-    '- 同一角色连续几句不要全用同一个 delivery_en。情绪可以有惯性，但每句要根据当下动作、潜台词和句式做细微变化，让对话像真人而不是统一播报腔。',
-    '- annotated 必须保留原台词的每一个字和标点，唯一允许的改动是插入下面的标记。',
+    '- 先读懂人物关系、当前动作、上一轮对话、潜台词和角色一贯性，再决定声音；不要只按句面情绪分类。',
+    '- 每句都要回答：这个人现在想让对方感受到什么、又在压住什么。把“嘴硬但心软、疲惫但照顾人、吃醋却装平静、亲近后自然放软”这类混合状态听出来。',
+    '- 同一角色连续几句要有情绪惯性，也要随着句式和动作产生细微变化，避免整段一个播报腔。',
+    ...LEVEL_RULES[level].map(x => '- ' + x),
+    '- Fish Audio S2 / S2.1：delivery_en 不要只写 happy / sad / calm。用 2–5 个英文短词同时描述主情绪、说话意图/关系感、能量或克制程度，优先具体而自然。',
+    '- Fish Audio S2 / S2.1 示例：warm, affectionate, softly amused；restrained, fond, trying to hide it；hurt, subdued, holding back tears；cold, clipped, controlled anger；gentle, protective, slightly tired。只作表达方式参考，不要机械套模板。',
+    performanceCues
+      ? '- 声音动作与停顿已开启。只在有表演价值的位置加入；不要机械地每句叹气、喘息、笑或停顿。'
+      : '- 声音动作与停顿已关闭。annotated 必须原样返回台词，不插入任何标记。',
+    '- annotated 必须保留原台词的每一个字和标点，唯一允许的改动是插入允许的标记。',
     '',
     '【允许插入的通用标记】',
-    '<pause=0.30>（0.12–0.90 秒）、<breath>、<sigh>、<chuckle>、<laugh>、<inhale>、<exhale>、<gasp>、<sniff>、<emm>',
+    performanceCues
+      ? '<pause=0.30>（0.12–0.90 秒）、<breath>、<sigh>、<chuckle>、<laugh>、<inhale>、<exhale>、<gasp>、<sniff>、<emm>'
+      : '无。原样返回。',
     '',
     '【输出字段】',
-    'emotion：只能是 neutral / happy / sad / angry / fearful / disgusted / surprised / calm 之一。',
-    'style_zh：给中文语音模型的 1–2 个中文语气词，例如 温柔、无奈、委屈、慵懒、平静；没有必要就空字符串。',
-    'delivery_en：给支持自然语言语气提示的模型。Fish Audio S2 / S2.1 优先写 2–5 个英文短词，尽量同时体现情绪、关系/意图和能量或克制程度，最多 40 个字符；例如 warm, teasing, softly amused / restrained, fond, slightly awkward / cold, clipped, controlled anger。其他模型可以更简短。',
+    'emotion：只能是 neutral / happy / sad / angry / fearful / disgusted / surprised / calm 之一。rich 或 dramatic 模式下，不要因为拿不准就大量使用 neutral；应从上下文选最接近的主情绪。',
+    'style_zh：给中文语音模型的 1–2 个中文语气词，例如 温柔、无奈、委屈、慵懒、克制、冷淡、心虚；没有必要就空字符串。',
+    'delivery_en：给支持自然语言语气提示的模型。Fish Audio S2 / S2.1 优先写 2–5 个英文短词，最多 40 个字符；例如 warm, teasing, softly amused / restrained, fond, slightly awkward / cold, clipped, controlled anger。',
     '',
     '只输出严格 JSON 数组，不要 Markdown，不要解释。每句必须有一项：',
-    '[{"id":0,"emotion":"calm","style_zh":"温柔","delivery_en":"soft, slightly tired","annotated":"<breath>原台词<pause=0.30>"}]',
+    '[{"id":0,"emotion":"calm","style_zh":"温柔","delivery_en":"warm, affectionate, softly amused","annotated":"<breath>原台词<pause=0.30>"}]',
     '',
     previousUser ? '【上一轮用户】\n' + plainSource(previousUser).slice(-1800) : '',
     profiles ? '【角色设定摘要】\n' + String(profiles).slice(0, 3600) : '',
@@ -78,7 +108,7 @@ export function buildDirectorPrompt({message='', previousUser='', profiles='', l
 }
 
 function jsonValue(raw) {
-  let text = String(raw || '').trim().replace(/^\`\`\`(?:json)?\s*/i, '').replace(/\s*\`\`\`$/, '');
+  let text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const a = text.indexOf('['), b = text.lastIndexOf(']');
   if (a >= 0 && b > a) text = text.slice(a, b + 1);
   try { return JSON.parse(text); } catch { return []; }
@@ -89,10 +119,10 @@ function stripGeneric(text='') {
 }
 function identity(text='') { return stripGeneric(text).replace(/\s+/g, ''); }
 
-function safeAnnotated(original, value) {
+function safeAnnotated(original, value, max = 5) {
   let count = 0;
   let text = String(value || original).replace(/<(pause=\d+(?:\.\d+)?|breath|sigh|chuckle|laugh|inhale|exhale|gasp|sniff|emm)>/gi, (whole, token) => {
-    if (++count > 4) return '';
+    if (++count > max) return '';
     const t = String(token).toLowerCase();
     if (t.startsWith('pause=')) {
       const seconds = Math.max(.12, Math.min(.9, Number(t.slice(6)) || .3));
@@ -118,57 +148,133 @@ export function parseDirectorReply(raw, lines=[]) {
   return lines.map((line, id) => map.get(id) || {emotion:'neutral', style:'', delivery:'', annotated:line.text});
 }
 
-function tokenMap(text, engine, model) {
-  const mini = {breath:'breath',sigh:'sighs',chuckle:'chuckle',laugh:'laughs',inhale:'inhale',exhale:'exhale',gasp:'gasps',sniff:'sniffs',emm:'emm'};
-  const mimo = {breath:'深呼吸',sigh:'叹气',chuckle:'轻笑',laugh:'笑',inhale:'吸气',exhale:'呼气',gasp:'震惊',sniff:'鼻音',emm:'心虚'};
-  const fishS1 = {breath:'',sigh:'sighing',chuckle:'chuckling',laugh:'laughing',inhale:'',exhale:'',gasp:'gasping',sniff:'',emm:''};
-  const square = {breath:'breath',sigh:'sighs',chuckle:'chuckles',laugh:'laughs',inhale:'inhales',exhale:'exhales',gasp:'gasps',sniff:'sniffs',emm:'hesitates'};
-  return String(text).replace(/<(pause=\d+(?:\.\d+)?|breath|sigh|chuckle|laugh|inhale|exhale|gasp|sniff|emm)>/gi, (whole, token) => {
-    const t = String(token).toLowerCase();
-    if (t.startsWith('pause=')) {
-      const seconds = Math.max(.12, Math.min(.9, Number(t.slice(6)) || .3));
-      if (engine === 'mini') return `<#${Math.round(seconds * 100) / 100}#>`;
-      if (engine === 'fish' && model === 's1') return seconds >= .5 ? '(long-break)' : '(break)';
-      return seconds >= .45 ? '……' : '…';
-    }
-    if (engine === 'mini') return model.startsWith('speech-2.8') && mini[t] ? `(${mini[t]})` : '';
-    if (engine === 'mimo') return mimo[t] ? `[${mimo[t]}]` : '';
-    if (engine === 'fish' && model === 's1') return fishS1[t] ? `(${fishS1[t]})` : '';
-    if ((engine === 'fish' && model !== 's1') || (engine === 'eleven' && /^eleven_v[34]/.test(model))) return square[t] ? `[${square[t]}] ` : '';
-    return '';
-  });
-}
-
 function routeFor(settings, name) {
   const route = settings.routes.find(r => r.name === name);
   if (!route) return null;
   return {...route, model: route.model || settings.connections[route.engine]?.model || ''};
 }
 
-function validDelivery(value) { return /^[a-z][a-z ,'-]{1,40}$/i.test(String(value || '').trim()) ? String(value).trim().toLowerCase() : ''; }
+function validDelivery(value) {
+  let text = String(value || '').trim().toLowerCase().replace(/[^a-z ,'-]/g, '').replace(/\s+/g, ' ');
+  if (text.length > 40) text = text.slice(0, 40).replace(/\s+\S*$/, '').replace(/[ ,'-]+$/, '');
+  return /^[a-z][a-z ,'-]{1,40}$/.test(text) ? text : '';
+}
+const pauseText = seconds => Number(seconds) >= .52 ? '……' : '…';
 
-export function applyDirector(lines, decisions, settings) {
+function annotate(text, {pause, sounds, maxSounds=2} = {}) {
+  let used = 0;
+  return String(text).replace(/<(pause=\d+(?:\.\d+)?|breath|sigh|chuckle|laugh|inhale|exhale|gasp|sniff|emm)>/gi, (whole, token) => {
+    const t = String(token).toLowerCase();
+    if (t.startsWith('pause=')) return pause ? pause(Number(t.slice(6)) || .3) : '';
+    if (used >= maxSounds) return '';
+    const value = sounds?.[t];
+    if (!value) return '';
+    used++;
+    return value;
+  });
+}
+
+function levelLimits(level) {
+  return level === 'natural' ? {sounds:1} : level === 'dramatic' ? {sounds:3} : {sounds:2};
+}
+
+function s1Tone(delivery='') {
+  const d = String(delivery).toLowerCase();
+  if (/whisper|hushed/.test(d)) return 'whispering';
+  if (/soft|gentle|tender|affectionate|quiet/.test(d)) return 'soft tone';
+  if (/hurry|urgent|rushed/.test(d)) return 'in a hurry tone';
+  if (/shout|furious|explosive/.test(d)) return 'shouting';
+  return '';
+}
+
+export function applyDirector(lines, decisions, settings, options = {}) {
+  const preset = settings?.presets?.find(p => p.id === settings.activePreset) || {};
+  const level = ['natural','rich','dramatic'].includes(options.performanceLevel) ? options.performanceLevel
+    : ['natural','rich','dramatic'].includes(preset.performanceLevel) ? preset.performanceLevel : 'rich';
+  const cues = options.performanceCues !== undefined ? options.performanceCues !== false : preset.performanceCues !== false;
+  const limits = levelLimits(level);
+
   return lines.map((line, i) => {
     const d = decisions?.[i] || {emotion:'neutral',style:'',delivery:'',annotated:line.text};
     const route = routeFor(settings, line.role);
     if (!route) return {...line, emotion:''};
     const {engine, model} = route;
-    let text = tokenMap(d.annotated || line.text, engine, model), emotion = '';
-    if (engine === 'mini') {
-      emotion = UNIVERSAL.has(d.emotion) ? d.emotion : '';
-    } else if (engine === 'mimo') {
-      const style = P.vocab.MIMO_STYLES.includes(d.style) ? d.style : MIMO_FROM[d.emotion] || '';
-      if (style) text = `(${style})${text}`;
+    const base = line.text;
+    const annotated = cues ? d.annotated || base : base;
+    let text = base, emotion = '';
+    let fallbackEmotion = '';
+
+    if (engine === 'fish' && model !== 's1') {
+      const sounds = {
+        breath:'[soft breath] ', sigh:'[soft sigh] ', chuckle:'[chuckles softly] ', laugh:'[laughs naturally] ',
+        inhale:'[inhales softly] ', exhale:'[exhales slowly] ', gasp:'[small gasp] ', sniff:'[sniffs softly] ', emm:'[hesitates softly] '
+      };
+      text = annotate(annotated, {pause: pauseText, sounds, maxSounds: Math.min(2, limits.sounds)});
+      const delivery = validDelivery(d.delivery) || validDelivery(FISH_FALLBACK[d.emotion]) || 'natural, conversational, expressive';
+      text = `[${delivery}] ${text}`;
+      // One leading delivery tag + at most two in-line sound tags = Fish S2/S2.1's documented three-tag ceiling.
+      emotion = '';
+      fallbackEmotion = d.emotion && d.emotion !== 'neutral' ? d.emotion : '';
     } else if (engine === 'fish' && model === 's1') {
-      const e = FISH_S1_FROM[d.emotion] || '';
-      if (e && P.vocab.FISH_S1_EMOTIONS.includes(e)) text = `(${e}) ${text}`;
-    } else if (engine === 'fish') {
-      const delivery = validDelivery(d.delivery || (d.emotion === 'neutral' ? '' : d.emotion));
-      if (delivery) text = `[${delivery}] ${text}`;
+      const e = FISH_S1_FROM[d.emotion] || 'calm';
+      const sounds = {
+        sigh:'(sighing) ', chuckle:'(chuckling) ', laugh:'(laughing) ', gasp:'(gasping) ',
+        breath:'', inhale:'', exhale:'', sniff:'', emm:''
+      };
+      text = annotate(annotated, {
+        pause: sec => sec >= .5 ? '(long-break) ' : '(break) ',
+        sounds,
+        maxSounds: limits.sounds
+      });
+      const tone = s1Tone(d.delivery);
+      text = `(${e}) ${tone ? '('+tone+') ' : ''}${text}`;
+      emotion = '';
+      fallbackEmotion = e;
+    } else if (engine === 'mini') {
+      const sounds = model.startsWith('speech-2.8') ? {
+        breath:'(breath)', sigh:'(sighs)', chuckle:'(chuckle)', laugh:'(laughs)', inhale:'(inhale)', exhale:'(exhale)',
+        gasp:'(gasps)', sniff:'(sniffs)', emm:'(emm)'
+      } : {};
+      text = annotate(annotated, {
+        pause: sec => `<#${Math.max(.12, Math.min(.9, Math.round(sec*100)/100))}#>`,
+        sounds,
+        maxSounds: limits.sounds
+      });
+      emotion = d.emotion && d.emotion !== 'neutral' ? d.emotion : 'calm';
+      fallbackEmotion = emotion;
+    } else if (engine === 'mimo') {
+      const sounds = {
+        breath:'[深呼吸]', sigh:'[叹气]', chuckle:'[轻笑]', laugh:'[笑]', inhale:'[吸气]', exhale:'[呼气]',
+        gasp:'[震惊]', sniff:'[鼻音]', emm:'[心虚]'
+      };
+      text = annotate(annotated, {pause: pauseText, sounds, maxSounds: limits.sounds});
+      const style = P.vocab.MIMO_STYLES.includes(d.style) ? d.style : MIMO_FROM[d.emotion] || '平静';
+      text = `(${style})${text}`;
+      emotion = '';
+      fallbackEmotion = style;
     } else if (engine === 'eleven' && /^eleven_v[34]/.test(model)) {
+      const sounds = {
+        breath:'[breathes softly] ', sigh:'[sighs] ', chuckle:'[chuckles] ', laugh:'[laughs] ', inhale:'[inhales] ',
+        exhale:'[exhales] ', gasp:'[gasps] ', sniff:'[sniffs] ', emm:'[hesitates] '
+      };
+      text = annotate(annotated, {pause: pauseText, sounds, maxSounds: Math.min(2, limits.sounds)});
       const delivery = validDelivery(d.delivery || (d.emotion === 'neutral' ? '' : d.emotion));
       if (delivery) text = `[${delivery}] ${text}`;
+      emotion = '';
+      fallbackEmotion = delivery || '';
+    } else {
+      text = base;
+      emotion = d.emotion && d.emotion !== 'neutral' ? d.emotion : '';
+      fallbackEmotion = emotion;
     }
-    return {...line, text, emotion};
+
+    return {
+      ...line,
+      text,
+      emotion,
+      directorRich: text !== base || emotion !== (line.emotion || ''),
+      fallbackText: base,
+      fallbackEmotion
+    };
   });
 }
