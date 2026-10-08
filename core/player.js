@@ -180,6 +180,66 @@ export class DialoguePlayer {
    return s.general.cacheEnabled && await this.cache.has(key) ? 'ready' : 'ungenerated';
   } catch { return 'ungenerated'; }
  }
+ /**
+  * Generates all supplied lines into the existing IndexedDB audio cache without playing them.
+  * This is intentionally separate from start()/run(): no AudioContext is opened and no sound reaches the speaker.
+  * The same rich-prosody -> untouched-text fallback used by normal playback is preserved.
+  */
+ async prefetch(lines, valid = () => true, onProgress = () => {}) {
+  const s = this.settings();
+  if (!s.general.cacheEnabled) return {total:lines.length,ready:0,generated:0,skipped:0,failed:0,cache:false};
+  const controller = new AbortController(), signal = controller.signal, cacheEpoch = this.cache.epoch;
+  const result = {total:lines.length,ready:0,generated:0,skipped:0,failed:0,cache:true};
+  for (let index=0; index<lines.length; index++) {
+   if (!valid()) { controller.abort(); return {...result,cancelled:true}; }
+   let line = copyLine(lines[index]);
+   const route = s.routes.find(r => r.name === line.role);
+   if (!route?.voice?.trim() && !(route?.engine === 'fish' && s.connections.fish.params.references.length) && !(route?.engine === 'mini' && s.connections.mini.params.timbre_weights.length)) {
+    result.skipped++; onProgress({...result,index,line,status:'skipped'}); continue;
+   }
+   const effective = {...structuredClone(route),language:route.language||s.general.defaultLanguage,model:route.model||s.connections[route.engine].model};
+   let request = buildRequest(route.engine,s.connections[route.engine],effective,line,this.providers.references);
+   let key = await requestHash(request), richKey = key;
+   if (line.directorRich && line.fallbackText !== undefined && this.richFailures.has(richKey)) {
+    line = {...line,text:line.fallbackText,emotion:line.fallbackEmotion||'',directorRich:false};
+    request = buildRequest(route.engine,s.connections[route.engine],effective,line,this.providers.references);
+    key = await requestHash(request);
+   }
+   if (!valid()) { controller.abort(); return {...result,cancelled:true}; }
+   let blob = await this.cache.get(key);
+   if (blob) { result.ready++; onProgress({...result,index,line,status:'ready'}); continue; }
+   onProgress({...result,index,line,status:'generating'});
+   try {
+    blob = await this.providers.synthesize(request,signal);
+   } catch (error) {
+    if (signal.aborted) return {...result,cancelled:true};
+    if (!line.directorRich || line.fallbackText === undefined) {
+     result.failed++; onProgress({...result,index,line,status:'failed',error}); continue;
+    }
+    this.richFailures.add(richKey);
+    line = {...line,text:line.fallbackText,emotion:line.fallbackEmotion||'',directorRich:false};
+    request = buildRequest(route.engine,s.connections[route.engine],effective,line,this.providers.references);
+    key = await requestHash(request);
+    blob = await this.cache.get(key);
+    if (!blob) {
+     try { blob = await this.providers.synthesize(request,signal); }
+     catch (error2) { result.failed++; onProgress({...result,index,line,status:'failed',error:error2}); continue; }
+    }
+   }
+   if (!valid()) { controller.abort(); return {...result,cancelled:true}; }
+   if (blob) {
+    await this.cache.put(key,blob,cacheEpoch,{
+     line:copyLine(line),
+     route:{name:effective.name,engine:effective.engine,model:effective.model,voice:effective.voice},
+     requestKey:key,
+     prefetched:true
+    });
+    result.generated++;
+   } else result.failed++;
+   onProgress({...result,index,line,status:blob?'generated':'failed'});
+  }
+  return result;
+ }
  emit(phase, message) {
   this.phase = phase;
   this.message = message;
