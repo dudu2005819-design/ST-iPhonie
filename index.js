@@ -16,7 +16,7 @@ import { createVoiceHost } from './host-voices.js';
 import { createSoundHost } from './host-sounds.js';
 import { renderSounds } from './core/sounds.js';
 import { TIER_NAMES } from './core/novelai.js';
-import { directorMode, buildDirectorPrompt, parseDirectorReply, applyDirector } from './core/director.js';
+import { directorMode, buildDirectorPrompt, parseDirectorReply } from './core/director.js';
 const base=new URL('.',import.meta.url),marker=globalThis.crypto?.randomUUID?.()||'unavailable';
 let active=false,hooked=false,settings,cache,player,panel,frame,observer,renderTimer,floating,lineRaf,lineMedia,playbackMessage,selectedMessage,backend,enabling,directorPlayEpoch=0;
 let renderEpoch=0,pictures=null,chats=null,momentsHost=null,appsHost=null,callHost=null,memoryHost=null,voiceHost=null,soundHost=null,pendingDraw=null,legacy=false;
@@ -136,12 +136,23 @@ async function directedStoryLines(snap,lines){
   let job=directorJobs.get(key);
   if(!job){job=(async()=>{
     const prompt=buildDirectorPrompt({message:snap.raw,previousUser:previousUser(snap),profiles:directorProfiles(lines),lines});
-    const raw=await backend.generateText(context(),{prompt,trimNames:false,responseLength:Math.min(2800,Math.max(800,500+lines.length*180))});
+    // The director is optional. Never let a slow custom LLM block a tap for minutes.
+    const timeout=new Promise((_,reject)=>setTimeout(()=>reject(Error('智能导演分析超时')),15000));
+    const raw=await Promise.race([
+      backend.generateText(context(),{prompt,trimNames:false,responseLength:Math.min(2200,Math.max(700,420+lines.length*140))}),
+      timeout
+    ]);
     const parsed=parseDirectorReply(raw,lines);directorRemember(key,parsed);return parsed;
    })().finally(()=>directorJobs.delete(key));directorJobs.set(key,job);}
-  try{decisions=await job;}catch(error){remember('智能导演失败：'+(error?.message||error),'error');notice('智能导演这次没成功，已让语音模型自行判断');return lines.map(l=>({...l,emotion:String(l.emotion||'').toLowerCase()==='auto'?'':l.emotion}));}
+  try{decisions=await job;}catch(error){remember('智能导演失败：'+(error?.message||error),'error');return lines.map(l=>({...l,emotion:String(l.emotion||'').toLowerCase()==='auto'?'':l.emotion}));}
  }
- return applyDirector(lines,decisions,settings);
+ // Safe director mode: keep the spoken text byte-for-byte unchanged and only provide a coarse emotion.
+ // This avoids vendor-specific pause/sound tags making otherwise-working Fish/MiniMax requests hang.
+ // Once stable on-device, richer prosody can be re-enabled per engine behind an explicit switch.
+ return lines.map((line,i)=>{
+  const emotion=String(decisions?.[i]?.emotion||'').toLowerCase();
+  return {...line,text:line.text,emotion:emotion&&emotion!=='neutral'?emotion:''};
+ });
 }
 
 function storeSettings(next){const voiced=voiceOn(),sounded=soundsOn(),oldScope=settings?.scope;settings=next;if(oldScope!==settings?.scope){directorScope='';directorLoad();}context().extensionSettings[NAMESPACE]=structuredClone(next);context().saveSettingsDebounced();if(active){memoryHost?.refreshStory();inject();syncFloating();if(voiced!==voiceOn()){player.stop();rerender();}else if(sounded!==soundsOn())rerender();else scheduleRender();}}
