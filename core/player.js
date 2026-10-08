@@ -137,6 +137,7 @@ export class DialoguePlayer {
   // Rich director requests use native per-engine prosody tags. If one particular rich request is rejected,
   // remember it for this page session and use the untouched line immediately on later plays.
   this.richFailures = new Set();
+  this.warmJobs = new Map();
   this.volume = volumeValue(sink.getVolume?.() ?? 1);
   this.clearMetadata();
  }
@@ -179,6 +180,43 @@ export class DialoguePlayer {
    if (this.played.has(key)) return 'played';
    return s.general.cacheEnabled && await this.cache.has(key) ? 'ready' : 'ungenerated';
   } catch { return 'ungenerated'; }
+ }
+ /** Generate one line into the normal audio cache without playing it. Multiple callers share the same in-flight job. */
+ async warmLine(line, signal = new AbortController().signal) {
+  const s=this.settings();
+  if(!s.general.cacheEnabled)return {state:'cache-off'};
+  let working=copyLine(line),route=s.routes.find(r=>r.name===working.role);
+  if(!route)return {state:'no-route'};
+  if(!route.voice?.trim()&&!(route.engine==='fish'&&s.connections.fish.params.references.length)&&!(route.engine==='mini'&&s.connections.mini.params.timbre_weights.length))return {state:'no-voice'};
+  const effective={...structuredClone(route),language:route.language||s.general.defaultLanguage,model:route.model||s.connections[route.engine].model};
+  let request=buildRequest(route.engine,s.connections[route.engine],effective,working,this.providers.references);
+  let key=await requestHash(request),richKey=key;
+  if(working.directorRich&&working.fallbackText!==undefined&&this.richFailures.has(richKey)){
+   working={...working,text:working.fallbackText,emotion:working.fallbackEmotion||'',directorRich:false};
+   request=buildRequest(route.engine,s.connections[route.engine],effective,working,this.providers.references);
+   key=await requestHash(request);
+  }
+  const hit=await this.cache.get(key);if(hit)return {state:'cached',key,blob:hit,line:working,request,effective,fromCache:true};
+  const existing=this.warmJobs.get(key)||this.warmJobs.get(richKey);if(existing)return existing;
+  const epoch=this.cache.epoch;
+  const job=(async()=>{
+   let blob,finalKey=key,finalLine=working,finalRequest=request;
+   try{blob=await this.providers.synthesize(finalRequest,signal);}
+   catch(error){
+    if(signal.aborted||!finalLine.directorRich||finalLine.fallbackText===undefined)throw error;
+    this.richFailures.add(richKey);
+    finalLine={...finalLine,text:finalLine.fallbackText,emotion:finalLine.fallbackEmotion||'',directorRich:false};
+    finalRequest=buildRequest(route.engine,s.connections[route.engine],effective,finalLine,this.providers.references);
+    finalKey=await requestHash(finalRequest);
+    blob=await this.cache.get(finalKey);
+    if(!blob)blob=await this.providers.synthesize(finalRequest,signal);
+   }
+   signal.throwIfAborted?.();
+   if(!(await this.cache.has(finalKey)))await this.cache.put(finalKey,blob,epoch,{line:copyLine(finalLine),route:{name:effective.name,engine:effective.engine,model:effective.model,voice:effective.voice},requestKey:finalKey});
+   return {state:'ready',key:finalKey,blob,line:finalLine,request:finalRequest,effective,fromCache:false};
+  })().finally(()=>{this.warmJobs.delete(key);this.warmJobs.delete(richKey);});
+  this.warmJobs.set(key,job);if(richKey!==key)this.warmJobs.set(richKey,job);
+  return job;
  }
  /**
   * Generates all supplied lines into the existing IndexedDB audio cache without playing them.
@@ -329,8 +367,14 @@ export class DialoguePlayer {
     let fromCache = !!blob;
     this.emit(this.phase === 'paused' ? 'paused' : 'generating', (fromCache ? '读取缓存 · ' : '正在生成 · ') + line.role);
     if (!blob) {
+     const warming=this.warmJobs.get(key)||this.warmJobs.get(richKey);
+     if(warming){
+      const ready=await warming;
+      if(!this.canContinue(epoch))return;
+      if(ready?.blob){blob=ready.blob;key=ready.key||key;line=ready.line||line;request=ready.request||request;this.line=line;this.requestKey=key;fromCache=true;}
+     }
      try {
-      blob = await this.providers.synthesize(request, signal);
+      if(!blob)blob = await this.providers.synthesize(request, signal);
      } catch (error) {
       if (signal.aborted || !line.directorRich || line.fallbackText === undefined) throw error;
       // Rich prosody must never make a previously-working voice unusable: retry once with the exact original wording.
